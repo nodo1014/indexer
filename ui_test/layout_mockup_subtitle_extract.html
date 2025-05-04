@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>내장 자막 추출 결과 목업</title>
+    <style>
+        body { margin:0; font-family: 'Segoe UI', '맑은 고딕', sans-serif; background:#f7f9fb; }
+        .container { max-width: 900px; margin: 40px auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 32px 32px 40px 32px; }
+        h2 { margin-top: 0; color: #1a5dab; }
+        .subtitle-extract-list { width: 100%; border-collapse: collapse; margin-top: 18px; }
+        .subtitle-extract-list th, .subtitle-extract-list td { padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center; }
+        .subtitle-extract-list th { background: #f4f8ff; }
+        .status-ok { color: #1a5dab; font-weight: bold; }
+        .status-warning { color: #e6a700; font-weight: bold; }
+        .status-error { color: #d32f2f; font-weight: bold; }
+        .btn { padding: 4px 12px; border-radius: 5px; border: none; background: #e0e6ef; color: #1a5dab; cursor: pointer; font-size: 1em; transition: background 0.15s; }
+        .btn:hover { background: #d0d8e0; }
+        /* 미리보기 모달 */
+        #subtitle-preview-modal { display:none; position:fixed; left:0; top:0; width:100vw; height:100vh; background:rgba(0,0,0,0.25); z-index:1000; }
+        #subtitle-preview-modal .modal-content { background:#fff; border-radius:8px; max-width:520px; margin:80px auto; padding:24px 28px; box-shadow:0 4px 24px rgba(0,0,0,0.10); }
+        #preview-content { background:#f8f8f8; border-radius:4px; padding:10px; max-height:320px; overflow-y:auto; font-size:1em; }
+        #modal-close { float:right; font-size:1.2em; color:#888; cursor:pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>내장 자막 추출 (API 연동 목업)</h2>
+        <div style="margin-bottom:18px;">
+            <input type="text" id="media-path" placeholder="미디어 파일 경로 입력 (예: /mnt/qq/movie1.mkv)" style="width:340px;">
+            <button id="extract-btn">내장 자막 추출</button>
+        </div>
+        <div id="extract-result">
+            <!-- 추출 결과 테이블이 여기에 표시됨 -->
+        </div>
+    </div>
+    <!-- 미리보기 모달 -->
+    <div id="preview-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <span class="close" id="modal-close">&times;</span>
+            <h3>자막 미리보기</h3>
+            <div id="modal-subtitle-content">(자막 내용 표시)</div>
+        </div>
+    </div>
+    <script>
+    document.getElementById('extract-btn').onclick = async function() {
+        const mediaPath = document.getElementById('media-path').value.trim();
+        if (!mediaPath) {
+            alert('미디어 파일 경로를 입력하세요.');
+            return;
+        }
+        document.getElementById('extract-result').innerHTML = '자막 추출 중...';
+        try {
+            const res = await fetch('/api/extract_subtitles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ media_path: mediaPath })
+            });
+            const data = await res.json();
+            if (data.error) {
+                document.getElementById('extract-result').innerHTML = `<span style='color:#d00;'>오류: ${data.error}</span>`;
+                return;
+            }
+            if (!data.tracks || data.tracks.length === 0) {
+                document.getElementById('extract-result').innerHTML = '<span>내장 자막 트랙이 없습니다.</span>';
+                return;
+            }
+            let html = `<table class='subtitle-extract-list'><thead><tr><th>트랙</th><th>언어</th><th>포맷</th><th>경로</th><th>상태</th><th>미리보기</th></tr></thead><tbody>`;
+            data.tracks.forEach(track => {
+                html += `<tr>
+                    <td>${track.track}</td>
+                    <td>${track.language}</td>
+                    <td>${track.format}</td>
+                    <td>${track.output_path}</td>
+                    <td>${track.status === 'pending' ? '대기' : track.status}</td>
+                    <td><button class='btn-preview' data-path='${track.output_path}'>보기</button></td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            document.getElementById('extract-result').innerHTML = html;
+            // 미리보기 버튼 이벤트
+            document.querySelectorAll('.btn-preview').forEach(btn => {
+                btn.onclick = function() {
+                    const path = btn.getAttribute('data-path');
+                    // 실제 자막 파일 미리보기 fetch는 후속 구현
+                    document.getElementById('modal-subtitle-content').innerText = path + ' (샘플 자막 내용)';
+                    document.getElementById('preview-modal').style.display = 'block';
+                };
+            });
+        } catch (e) {
+            document.getElementById('extract-result').innerHTML = `<span style='color:#d00;'>오류: ${e.message}</span>`;
+        }
+    };
+    document.getElementById('modal-close').onclick = function() {
+        document.getElementById('preview-modal').style.display = 'none';
+    };
+    window.onclick = function(event) {
+        if (event.target === document.getElementById('preview-modal')) {
+            document.getElementById('preview-modal').style.display = 'none';
+        }
+    };
+    </script>
+</body>
+</html> 

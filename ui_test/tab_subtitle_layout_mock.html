@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>자막 자동화 서비스 레이아웃 목업</title>
+  <style>
+    body { font-family: 'Pretendard', 'Noto Sans KR', Arial, sans-serif; background: #f8fafc; margin: 0; padding: 0; }
+    /* 상단 헤더 */
+    .app-header {
+      width: 100%; height: 56px; background: #3498db; color: #fff;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 1.25em; font-weight: bold; padding: 0 32px;
+      box-shadow: 0 2px 8px rgba(52,152,219,0.07);
+      position: sticky; top: 0; z-index: 10;
+      letter-spacing: 1px;
+    }
+    .header-title { letter-spacing: 1px; }
+    .header-icons { display: flex; align-items: center; gap: 18px; font-size: 1.1em; }
+    .header-icon { cursor: pointer; opacity: 0.85; transition: opacity 0.2s; }
+    .header-icon:hover { opacity: 1; }
+    /* 기존 레이아웃 */
+    .layout { display: flex; min-height: 100vh; }
+    .sidebar { width: 220px; background: #f3f6fa; border-right: 1.5px solid #e0e6ef; padding: 24px 12px; }
+    .sidebar h2 { font-size: 1.1em; margin-top: 0; }
+    .folder-tree { margin-bottom: 24px; }
+    .folder { margin-left: 12px; }
+    .main-panel { flex: 1; display: flex; flex-direction: column; }
+    .file-list-section { background: #fff; padding: 18px 28px 8px 28px; border-bottom: 1.5px solid #e0e6ef; }
+    .file-list-table { width: 100%; border-collapse: collapse; margin-bottom: 0; }
+    .file-list-table th, .file-list-table td { padding: 7px 10px; border-bottom: 1px solid #e0e6ef; text-align: left; }
+    .file-list-table th { background: #f8fafd; font-weight: 600; }
+    .file-list-table tr.selected { background: #eaf4fb; }
+    .subtitle-tab-section { background: #fff; padding: 28px 36px; }
+    .selected-file-info { font-size: 1.08em; margin-bottom: 18px; color: #3498db; font-weight: 500; }
+    .tab-bar { display: flex; border-bottom: 2px solid #e0e6ef; margin-bottom: 18px; }
+    .tab-btn { padding: 10px 28px; border: none; background: none; font-size: 1.08em; cursor: pointer; color: #888; border-bottom: 3px solid transparent; transition: color 0.2s, border 0.2s; }
+    .tab-btn.active { color: #3498db; border-bottom: 3px solid #3498db; font-weight: bold; background: #fff; }
+    .tab-content { display: none; padding-top: 12px; }
+    .tab-content.active { display: block; }
+    .form-row { margin-bottom: 16px; }
+    label { margin-right: 8px; font-weight: 500; }
+    select { padding: 6px 10px; border: 1px solid #d0d6e0; border-radius: 5px; font-size: 1em; }
+    button { padding: 8px 18px; border-radius: 6px; border: none; background: #3498db; color: #fff; font-size: 1em; cursor: pointer; margin-right: 8px; }
+    button:disabled { background: #b0c4de; cursor: not-allowed; }
+    .result-panel { background: #f6fafd; border: 1px solid #e0e6ef; border-radius: 8px; padding: 14px; margin-top: 14px; min-height: 40px; }
+  </style>
+</head>
+<body>
+  <!-- 상단 헤더 -->
+  <header class="app-header">
+    <div class="header-title">Whisper 자막 자동화</div>
+    <div class="header-icons">
+      <span class="header-icon" title="도움말">❓</span>
+      <span class="header-icon" title="설정">⚙️</span>
+    </div>
+  </header>
+  <div class="layout">
+    <!-- 사이드바: 폴더 트리/검색 -->
+    <aside class="sidebar">
+      <h2>폴더 탐색기</h2>
+      <div class="folder-tree">
+        <div>📁 NAS</div>
+        <div class="folder">📁 Movies</div>
+        <div class="folder">📁 TVShows</div>
+        <div class="folder">📁 Music</div>
+      </div>
+      <div>
+        <input type="text" placeholder="폴더/파일 검색" style="width:90%; padding:5px 8px; border-radius:5px; border:1px solid #d0d6e0;">
+      </div>
+    </aside>
+    <!-- 메인 패널 -->
+    <main class="main-panel">
+      <!-- 파일 목록 -->
+      <section class="file-list-section">
+        <table class="file-list-table">
+          <thead>
+            <tr>
+              <th>파일명</th>
+              <th>확장자</th>
+              <th>자막</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="selected">
+              <td>movie1.mp4</td>
+              <td>mp4</td>
+              <td>없음</td>
+              <td>대기</td>
+            </tr>
+            <tr>
+              <td>movie2.mkv</td>
+              <td>mkv</td>
+              <td>있음</td>
+              <td>완료</td>
+            </tr>
+            <tr>
+              <td>movie3.avi</td>
+              <td>avi</td>
+              <td>없음</td>
+              <td>대기</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <!-- 탭 UI: 자막 다운로드 | 음성으로 자막 생성 -->
+      <section class="subtitle-tab-section">
+        <div class="selected-file-info">선택된 파일: <span id="selected-file">movie1.mp4</span></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" id="tab-download">자막 다운로드</button>
+          <button class="tab-btn" id="tab-whisper">음성으로 자막 생성</button>
+        </div>
+        <!-- 자막 다운로드 탭 -->
+        <div class="tab-content active" id="tab-content-download">
+          <div class="form-row">
+            <label for="sub-lang">자막 언어</label>
+            <select id="sub-lang">
+              <option value="en">영어 (en)</option>
+              <option value="ko">한국어 (ko)</option>
+              <option value="ja">일본어 (ja)</option>
+              <option value="zh">중국어 (zh)</option>
+            </select>
+            <button id="btn-auto-download">외부 자막 자동 다운로드</button>
+          </div>
+          <div class="result-panel" id="download-result">(진행상황/결과 표시)</div>
+        </div>
+        <!-- 음성으로 자막 생성 탭 -->
+        <div class="tab-content" id="tab-content-whisper">
+          <div class="form-row">
+            <label for="whisper-model">모델</label>
+            <select id="whisper-model">
+              <option value="tiny">Tiny</option>
+              <option value="base">Base</option>
+              <option value="small">Small</option>
+              <option value="medium">Medium</option>
+            </select>
+            <label for="whisper-lang">언어</label>
+            <select id="whisper-lang">
+              <option value="auto">자동 인식</option>
+              <option value="en">영어 (en)</option>
+              <option value="ko">한국어 (ko)</option>
+              <option value="ja">일본어 (ja)</option>
+              <option value="zh">중국어 (zh)</option>
+            </select>
+            <button id="btn-whisper">Whisper로 자막 생성</button>
+          </div>
+          <div class="result-panel" id="whisper-result">(진행상황/결과 표시)</div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script>
+    // 탭 전환 로직
+    document.getElementById('tab-download').onclick = function() {
+      document.getElementById('tab-download').classList.add('active');
+      document.getElementById('tab-whisper').classList.remove('active');
+      document.getElementById('tab-content-download').classList.add('active');
+      document.getElementById('tab-content-whisper').classList.remove('active');
+    };
+    document.getElementById('tab-whisper').onclick = function() {
+      document.getElementById('tab-whisper').classList.add('active');
+      document.getElementById('tab-download').classList.remove('active');
+      document.getElementById('tab-content-whisper').classList.add('active');
+      document.getElementById('tab-content-download').classList.remove('active');
+    };
+    // 파일 목록 클릭 시 선택 파일명 갱신 (샘플)
+    document.querySelectorAll('.file-list-table tbody tr').forEach(function(row) {
+      row.onclick = function() {
+        document.querySelectorAll('.file-list-table tr').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        document.getElementById('selected-file').textContent = row.children[0].textContent;
+      };
+    });
+  </script>
+</body>
+</html> 

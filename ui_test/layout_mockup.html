@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>UI Layout Mockup</title>
+    <style>
+        body { margin:0; font-family: 'Segoe UI', '맑은 고딕', sans-serif; background:#f7f9fb; }
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #1a5dab;
+            color: #fff;
+            padding: 0 24px;
+            height: 48px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+        }
+        .navbar-title { font-size: 1.25em; font-weight: bold; cursor: pointer; }
+        .navbar-right { display: flex; gap: 18px; }
+        .navbar-link { color: #fff; text-decoration: none; font-size: 1em; transition: color 0.2s; }
+        .navbar-link:hover { color: #ffd700; }
+        .container {
+            display: flex;
+            gap: 24px;
+            max-width: 1200px;
+            margin: 32px auto 0 auto;
+        }
+        .sidebar {
+            width: 260px;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            padding: 18px 16px;
+            min-height: 600px;
+        }
+        .main-content {
+            flex: 1;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            padding: 18px 20px;
+            min-height: 600px;
+        }
+        .section-title { font-size: 1.1em; font-weight: 600; margin-bottom: 12px; }
+        .explorer-list, .job-list, .file-list { margin: 0 0 18px 0; padding: 0; list-style: none; }
+        .explorer-list li { padding: 4px 0; color: #1a5dab; }
+        .job-list li { padding: 4px 0; color: #444; }
+        .file-list th, .file-list td { padding: 6px 10px; border-bottom: 1px solid #eee; }
+        .file-list th { background: #f4f8ff; }
+        .file-list { width: 100%; border-collapse: collapse; }
+        .status-badge { display:inline-block; padding:2px 8px; border-radius:6px; font-size:0.95em; background:#e0e6ef; color:#1a5dab; }
+    </style>
+</head>
+<body>
+    <!-- 상단 메뉴바 -->
+    <nav class="navbar">
+        <div class="navbar-left">
+            <span class="navbar-title">Whisper 자막 생성기</span>
+        </div>
+        <div class="navbar-right">
+            <a href="#" class="navbar-link">홈</a>
+            <a href="#" class="navbar-link">자막 다운로드</a>
+            <a href="#" class="navbar-link">싱크 대조</a>
+            <a href="#" class="navbar-link">About</a>
+        </div>
+    </nav>
+    <div class="container">
+        <!-- 사이드바(탐색기 + 작업현황) -->
+        <aside class="sidebar">
+            <div class="section-title">탐색기</div>
+            <ul class="explorer-list">
+                <li>📁 Movies (영상 12, 오디오 3)</li>
+                <li>📁 TV Shows (영상 24, 오디오 0)</li>
+                <li>📁 Music (영상 0, 오디오 50)</li>
+            </ul>
+            <div class="section-title">작업 현황</div>
+            <ul class="job-list">
+                <li>Boyhood.mp4 <span class="status-badge">진행중</span></li>
+                <li>Elemental.mp3 <span class="status-badge">대기</span></li>
+            </ul>
+        </aside>
+        <!-- 메인 컨텐츠(파일 목록 등) -->
+        <main class="main-content">
+            <div class="section-title">자막 없는 미디어 파일 목록</div>
+            <table class="file-list">
+                <thead>
+                    <tr>
+                        <th>상태</th>
+                        <th>진행률</th>
+                        <th>파일 이름</th>
+                        <th>언어</th>
+                        <th>자막 미리보기</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="status-badge">대기</span></td>
+                        <td>0%</td>
+                        <td>Boyhood.mp4</td>
+                        <td>en</td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td><span class="status-badge">진행중</span></td>
+                        <td>30%</td>
+                        <td>Elemental.mp3</td>
+                        <td>ko</td>
+                        <td>-</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="subtitle-download-container">
+                <h2>자막 다운로드</h2>
+                <!-- 검색 영역 -->
+                <div class="search-bar">
+                    <input type="text" id="media-title" placeholder="미디어 파일명 또는 제목" value="Movie.Title.2023.1080p.mkv">
+                    <select id="subtitle-lang">
+                        <option value="ko">한국어</option>
+                        <option value="en">영어</option>
+                        <!-- ... -->
+                    </select>
+                    <button id="search-subtitles">검색</button>
+                </div>
+
+                <!-- 자막 후보 리스트 -->
+                <table class="subtitle-list">
+                    <thead>
+                        <tr>
+                            <th>파일명</th>
+                            <th>언어</th>
+                            <th>업로더</th>
+                            <th>평점</th>
+                            <th>미리보기</th>
+                            <th>싱크 대조</th>
+                            <th>다운로드</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Movie.Title.2023.KOR.srt</td>
+                            <td>한국어</td>
+                            <td>user123</td>
+                            <td>⭐⭐⭐⭐</td>
+                            <td><button>보기</button></td>
+                            <td><button>싱크 대조</button></td>
+                            <td><button>다운로드</button></td>
+                        </tr>
+                        <!-- ... -->
+                    </tbody>
+                </table>
+
+                <!-- 자막 미리보기/싱크 결과 모달 -->
+                <div id="subtitle-preview-modal" style="display:none;">
+                    <h3>자막 미리보기</h3>
+                    <pre>1\n00:00:01,000 --> 00:00:03,000\n안녕하세요...</pre>
+                    <button>닫기</button>
+                </div>
+                <div id="sync-result" style="display:none;">
+                    <span>싱크 결과: 일치 / 오프셋 +1.2초</span>
+                    <button>적용/저장</button>
+                </div>
+
+                <!-- 상태/알림 영역 -->
+                <div id="subtitle-status"></div>
+            </div>
+        </main>
+    </div>
+</body>
+</html> 

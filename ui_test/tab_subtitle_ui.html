@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>자막 자동화 탭 UI 목업</title>
+  <style>
+    body { font-family: 'Pretendard', 'Noto Sans KR', Arial, sans-serif; background: #f8fafc; margin: 0; padding: 0; }
+    .container { max-width: 900px; margin: 32px auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); padding: 32px 36px; }
+    h1 { margin-top: 0; }
+    .tab-bar { display: flex; border-bottom: 2px solid #e0e6ef; margin-bottom: 24px; }
+    .tab-btn { padding: 12px 32px; border: none; background: none; font-size: 1.15em; cursor: pointer; color: #888; border-bottom: 3px solid transparent; transition: color 0.2s, border 0.2s; }
+    .tab-btn.active { color: #3498db; border-bottom: 3px solid #3498db; font-weight: bold; background: #fff; }
+    .tab-content { display: none; padding-top: 12px; }
+    .tab-content.active { display: block; }
+    .form-row { margin-bottom: 18px; }
+    label { margin-right: 8px; font-weight: 500; }
+    input[type=text], select { padding: 6px 10px; border: 1px solid #d0d6e0; border-radius: 5px; font-size: 1em; }
+    button { padding: 8px 18px; border-radius: 6px; border: none; background: #3498db; color: #fff; font-size: 1em; cursor: pointer; margin-right: 8px; }
+    button:disabled { background: #b0c4de; cursor: not-allowed; }
+    .result-panel { background: #f6fafd; border: 1px solid #e0e6ef; border-radius: 8px; padding: 16px; margin-top: 18px; min-height: 48px; }
+    .file-list { margin-top: 18px; }
+    .file-list th, .file-list td { padding: 6px 10px; border-bottom: 1px solid #e0e6ef; }
+    .file-list th { background: #f8fafd; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>자막 자동화 테스트 UI (탭 구조 목업)</h1>
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-download">자막 다운로드</button>
+      <button class="tab-btn" id="tab-whisper">음성으로 자막 생성</button>
+    </div>
+    <!-- 자막 다운로드 탭 -->
+    <div class="tab-content active" id="tab-content-download">
+      <div class="form-row">
+        <label for="media-path">미디어 파일 경로</label>
+        <input type="text" id="media-path" placeholder="/nas/Movies/xxx.mp4" style="width:320px;">
+      </div>
+      <div class="form-row">
+        <label for="sub-lang">자막 언어</label>
+        <select id="sub-lang">
+          <option value="en">영어 (en)</option>
+          <option value="ko">한국어 (ko)</option>
+          <option value="ja">일본어 (ja)</option>
+          <option value="zh">중국어 (zh)</option>
+        </select>
+        <button id="btn-auto-download">외부 자막 자동 다운로드</button>
+      </div>
+      <div class="result-panel" id="download-result">(진행상황/결과 표시)</div>
+    </div>
+    <!-- 음성으로 자막 생성 탭 -->
+    <div class="tab-content" id="tab-content-whisper">
+      <div class="form-row">
+        <label for="media-path-whisper">미디어 파일 경로</label>
+        <input type="text" id="media-path-whisper" placeholder="/nas/Movies/xxx.mp4" style="width:320px;">
+      </div>
+      <div class="form-row">
+        <label for="whisper-model">모델</label>
+        <select id="whisper-model">
+          <option value="tiny">Tiny</option>
+          <option value="base">Base</option>
+          <option value="small">Small</option>
+          <option value="medium">Medium</option>
+        </select>
+        <label for="whisper-lang">언어</label>
+        <select id="whisper-lang">
+          <option value="auto">자동 인식</option>
+          <option value="en">영어 (en)</option>
+          <option value="ko">한국어 (ko)</option>
+          <option value="ja">일본어 (ja)</option>
+          <option value="zh">중국어 (zh)</option>
+        </select>
+        <button id="btn-whisper">Whisper로 자막 생성</button>
+      </div>
+      <div class="result-panel" id="whisper-result">(진행상황/결과 표시)</div>
+    </div>
+  </div>
+  <script>
+    // 탭 전환 로직
+    document.getElementById('tab-download').onclick = function() {
+      document.getElementById('tab-download').classList.add('active');
+      document.getElementById('tab-whisper').classList.remove('active');
+      document.getElementById('tab-content-download').classList.add('active');
+      document.getElementById('tab-content-whisper').classList.remove('active');
+    };
+    document.getElementById('tab-whisper').onclick = function() {
+      document.getElementById('tab-whisper').classList.add('active');
+      document.getElementById('tab-download').classList.remove('active');
+      document.getElementById('tab-content-whisper').classList.add('active');
+      document.getElementById('tab-content-download').classList.remove('active');
+    };
+  </script>
+</body>
+</html> 

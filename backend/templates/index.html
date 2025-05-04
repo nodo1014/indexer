@@ -6,33 +6,72 @@
     <title>Whisper 자막 생성기</title>
     <link rel="stylesheet" href="/static/style.css">
     <style>
-        /* 표 간격 및 컬럼별 너비 조정 */
-        table th, table td { padding: 6px 8px; }
-        th, td { vertical-align: middle; }
-        th.status, td.status { min-width: 60px; max-width: 80px; text-align: center; }
-        th.progress, td.progress { min-width: 70px; max-width: 90px; text-align: center; }
-        th.lang-code, td.lang-code { min-width: 40px; max-width: 50px; text-align: center; }
-        th.subtitle-preview, td.subtitle-preview { min-width: 200px; max-width: 600px; }
-        td.subtitle-preview { cursor: pointer; }
-        .modal-content pre { max-height: 400px; overflow-y: auto; background: #f8f8f8; padding: 10px; border-radius: 4px; }
+        th.lang-code, td.lang-code {
+            min-width: 10px !important;
+            max-width: 18px !important;
+            text-align: center;
+            font-size: 0.95em;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        th.subtitle-status, td.subtitle-status { min-width: 36px; max-width: 60px; text-align: center; }
+        th.subtitle-preview, td.subtitle-preview { min-width: 48px; max-width: 100px; }
+        th.extract-embedded, td.extract-embedded { min-width: 24px; max-width: 32px; text-align: center; }
+        .extract-embedded button {
+            white-space: nowrap;
+            font-size: 0.9em;
+            padding: 2px 4px;
+            min-width: 0;
+            max-width: 24px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
         .job-btn {
-            background: none;
-            border: none;
-            padding: 2px 2px;
+            background: none !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 2px 0 0;
             font-size: 1.15em;
             cursor: pointer;
-            margin-right: 2px;
-            line-height: 1;
-            border-radius: 4px;
-            transition: background 0.15s;
+            border-radius: 0 !important;
+            transition: none !important;
+            color: inherit;
         }
-        .job-btn:last-child { margin-right: 0; }
-        .job-btn:hover {
-            background: #f0f2f5;
+        .job-btn:hover, .job-btn:active, .job-btn:focus {
+            background: none !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: inherit;
         }
-        #job-list li {
-            min-height: 28px;
-            font-size: 0.97em;
+        @media (max-width: 900px) {
+            #sidebar-toggle { display: block !important; }
+            .directory-browser {
+                position: fixed;
+                left: 0; top: 0; bottom: 0;
+                width: 80vw; max-width: 320px;
+                background: #f0f4f8;
+                z-index: 1000;
+                transform: translateX(-100%);
+                transition: transform 0.25s;
+                box-shadow: 2px 0 8px rgba(0,0,0,0.08);
+            }
+            .directory-browser.open {
+                transform: translateX(0);
+            }
+            .directory-browser:not(.open) { display: none !important; }
+            .container { flex-direction: column; }
+        }
+        @media (min-width: 901px) {
+            #sidebar-toggle { display: none !important; }
+            .directory-browser {
+                position: static !important;
+                transform: none !important;
+                box-shadow: none !important;
+                width: 100% !important;
+                max-width: none !important;
+            }
         }
     </style>
 </head>
@@ -60,9 +99,7 @@
             <!-- 작업 현황 패널 시작 -->
             <div id="job-status-panel" class="job-status-panel" style="margin-top:18px;padding:12px;background:#f6fafd;border-radius:8px;border:1px solid #e0e6ef;">
                 <h3 style="margin:0 0 8px 0;font-size:1.05em;">작업 현황</h3>
-                <ul id="job-list" style="list-style:none;padding:0;margin:0;min-height:32px;">
-                    <li style="color:#888;">진행 중인 작업이 없습니다.</li>
-                </ul>
+                <ul id="job-list" style="list-style:none;padding:0;margin:0;min-height:32px;"></ul>
             </div>
             <!-- 작업 현황 패널 끝 -->
         </div>
@@ -70,7 +107,7 @@
 
         <!-- [파일 목록 영역 시작] -->
         <div id="file-list-container" class="file-list-container">
-            <h2 id="file-list-header">자막 없는 미디어 파일 목록 (/{{ initial_path }})</h2>
+            <h2 id="file-list-header">미디어 파일 목록 (/{{ initial_path }})</h2>
             <div class="controls" id="controls">
                 <!-- 검색 필터 추가 -->
                 <div class="search-filter">
@@ -86,22 +123,27 @@
                 <div class="actions" id="actions">
                      <label for="model-select">모델:</label>
                      <select id="model-select">
-                         <option value="tiny">Tiny</option>
-                         <option value="base" selected>Base</option>
-                         <option value="small">Small</option>
-                         <option value="medium">Medium</option>
-                         <!-- Large 모델은 리소스 많이 필요 -->
-                         <!-- <option value="large">Large</option> -->
+                         <option value="tiny" title="가장 빠름, 저사양 PC/테스트용">Tiny</option>
+                         <option value="base" title="빠름, 일상적 사용/저사양 PC">Base</option>
+                         <option value="small" title="중간 속도, 일반 PC/서버">Small</option>
+                         <option value="medium" title="느림, 고성능 PC/서버">Medium</option>
+                         <!-- <option value="large" title="매우 느림, 고성능 GPU 필수">Large</option> -->
                      </select>
+                     <span id="model-desc" style="margin-left:8px;color:#888;font-size:0.97em;"></span>
                     <label for="whisper-lang">언어:</label>
                     <select id="whisper-lang">
-                        <option value="auto" selected>자동 인식</option>
-                        <option value="en">영어 (en)</option>
-                        <option value="ko">한국어 (ko)</option>
-                        <option value="jp">일본어 (jp)</option>
-                        <option value="cn">중국어 (cn)</option>
-                        <option value="fr">프랑스어 (fr)</option>
+                        <optgroup label="자동/권장">
+                            <option value="auto" title="자동 인식 (권장)" selected>자동 인식</option>
+                        </optgroup>
+                        <optgroup label="주요 언어">
+                            <option value="en" title="영어">영어 (en)</option>
+                            <option value="ko" title="한국어">한국어 (ko)</option>
+                            <option value="ja" title="일본어">일본어 (ja)</option>
+                            <option value="zh" title="중국어">중국어 (zh)</option>
+                            <option value="fr" title="프랑스어">프랑스어 (fr)</option>
+                        </optgroup>
                     </select>
+                    <span id="lang-desc" style="margin-left:8px;color:#888;font-size:0.97em;"></span>
                     <button id="select-all">전체 선택</button>
                     <button id="deselect-all">전체 해제</button>
                     <button id="run-whisper" class="cta-button">선택 파일 자막 생성</button>
@@ -109,20 +151,22 @@
                 </div>
             </div>
 
-             <div class="table-wrapper" id="table-wrapper">
-                <table>
+            <div class="table-wrapper" id="table-wrapper">
+                <table style="table-layout:fixed;width:100%;">
                     <thead>
                         <tr>
                             <th><input type="checkbox" id="select-all-header"></th>
                             <th class="status">상태</th>
                             <th class="progress">진행률</th>
-                            <th>파일 이름</th>
-                            <th class="lang-code">언어</th>
-                            <th class="subtitle-preview">자막 미리보기</th>
+                            <th>파일명</th>
+                            <th class="lang-code" title="언어">언어</th>
+                            <th class="subtitle-status">상태</th>
+                            <th class="subtitle-preview">미리보기</th>
+                            <th class="extract-embedded">내장자막</th>
                         </tr>
                     </thead>
                     <tbody id="file-list">
-                        <tr><td colspan="5">파일 목록 로딩 중...</td></tr>
+                        <tr><td colspan="8">파일 목록 로딩 중...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -155,6 +199,21 @@
         </div>
     </div>
     <!-- [진행률 모달창 영역 끝] -->
+
+    <!-- 모달 추가 (body 하단) -->
+    <div id="extract-modal" class="modal" style="display:none;">
+      <div class="modal-content">
+        <span class="close" id="extract-modal-close">&times;</span>
+        <h3 id="extract-modal-title">내장 자막 추출 결과</h3>
+        <div style="margin-bottom:12px;">
+          <button id="download-external-btn">외부 자막 다운로드</button>
+        </div>
+        <div id="extract-modal-result">(결과 표시)</div>
+      </div>
+    </div>
+
+    <!-- 햄버거 메뉴 버튼 추가 -->
+    <button id="sidebar-toggle" style="display:block !important;position:fixed;top:16px;left:16px;z-index:9999;font-size:2.2em;background:#fff;border:2px solid #3498db;color:#3498db;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);cursor:pointer;padding:2px 12px 2px 10px;">☰</button>
 
     <script>
         // 상수 및 유틸리티 함수
@@ -228,13 +287,43 @@
             };
         }
 
+        window.whisperLogs = {};
+        window.completedFiles = [];
+
         function handleWebSocketMessage(message) {
             try {
                 const data = JSON.parse(message);
                 console.log("WebSocket 메시지 수신:", data);
-
                 const fileRow = findRowByPath(data.file_path);
-
+                // Whisper 로그 누적 (status_update, log 모두)
+                if (data.file_path) {
+                    if (!window.whisperLogs[data.file_path]) window.whisperLogs[data.file_path] = [];
+                    if (data.type === 'status_update' || data.type === 'log') {
+                        window.whisperLogs[data.file_path].push({
+                            time: new Date().toLocaleTimeString(),
+                            status: data.status,
+                            message: data.message,
+                            progress: data.progress_percent,
+                            type: data.type
+                        });
+                    }
+                }
+                // Whisper 작업 이력 관리
+                if (data.type === 'status_update' && ["completed","skipped","error","cancelled"].includes(data.status)) {
+                    // 중복 방지: 이미 등록된 파일은 건너뜀
+                    if (!window.completedFiles.find(f => f.file_path === data.file_path && f.status === data.status)) {
+                        window.completedFiles.push({
+                            file_path: data.file_path,
+                            file_name: data.file_path ? data.file_path.split(/[\\\/]/).pop() : '',
+                            status: data.status,
+                            output_path: data.output_path,
+                            message: data.message,
+                            language: data.language,
+                            subtitle_preview: data.subtitle_preview
+                        });
+                        renderCompletedFiles();
+                    }
+                }
                 if (data.type === "status_update") {
                     if (fileRow) {
                         const statusCell = fileRow.querySelector(".status");
@@ -438,7 +527,7 @@
             console.log(`Navigating to: ${relativePath}`);
             currentRelativePath = relativePath || "";  // 빈 문자열 처리
             // URL 업데이트 (파일 필터는 제외, 경로만 변경)
-            const url = `/?scan_path=${encodeURIComponent(relativePath)}`;
+            const url = relativePath ? `/?scan_path=${encodeURIComponent(relativePath)}` : '/';
             history.pushState({ path: relativePath }, '', url);
             // UI 업데이트 (현재 경로 표시)
             const pathDisplay = document.getElementById('current-path-display');
@@ -448,7 +537,7 @@
             const fileListHeader = document.getElementById('file-list-header');
             if (fileListHeader) {
                 fileListHeader.textContent = 
-                    `자막 없는 미디어 파일 목록 (${relativePath ? '/' + relativePath : '루트'})`;
+                    '미디어 파일 목록 (' + (relativePath ? '/' + relativePath : '루트') + ')';
             }
             try {
                 // 트리 구조 로드
@@ -456,7 +545,7 @@
                 // 파일 목록은 로드하지 않고 안내 메시지만 표시
                 const fileListBody = document.getElementById('file-list');
                 if (fileListBody) {
-                    fileListBody.innerHTML = '<tr><td colspan="6">이 폴더의 미디어 파일을 검색하려면 "현재 폴더 검색" 버튼을 클릭하세요.</td></tr>';
+                    fileListBody.innerHTML = '<tr><td colspan="8">이 폴더의 미디어 파일을 검색하려면 "현재 폴더 검색" 버튼을 클릭하세요.</td></tr>';
                 }
             } catch (error) {
                 console.error("탐색 오류:", error);
@@ -478,100 +567,41 @@
         }
 
         async function loadFileList(relativePath) {
-            console.log(`Loading file list for: ${relativePath || "root"}`);
             const fileListBody = document.getElementById('file-list');
             if (fileListBody) {
-                fileListBody.innerHTML = '<tr><td colspan="6">파일 목록 로딩 중...</td></tr>';
+                fileListBody.innerHTML = '<tr><td colspan="8">파일 목록 로딩 중...</td></tr>';
             }
-
             const filterVideo = document.getElementById('filter-video').checked;
             const filterAudio = document.getElementById('filter-audio').checked;
             const subtitleFilter = document.getElementById('subtitle-filter').value;
-
             try {
                 const response = await fetch(`/api/files?scan_path=${encodeURIComponent(relativePath || "")}&filter_video=${filterVideo}&filter_audio=${filterAudio}&subtitle_filter=${subtitleFilter}`);
-                if (!response.ok) {
-                    throw new Error(`파일 목록 로드 실패: ${response.statusText}`);
-                }
+                if (!response.ok) throw new Error(`파일 목록 로드 실패: ${response.statusText}`);
                 const data = await response.json();
-                // 오류 처리
-                if (data.error) {
-                    throw new Error(`파일 목록 오류: ${data.error}`);
-                }
-                if (fileListBody) {
-                    fileListBody.innerHTML = '';
-                }
-
-                // 검색 결과 통계 계산
-                let total = 0, video = 0, audio = 0, noSubtitle = 0, hasSubtitle = 0;
+                if (data.error) throw new Error(`파일 목록 오류: ${data.error}`);
+                if (fileListBody) fileListBody.innerHTML = '';
                 if (data.files && data.files.length > 0) {
                     data.files.forEach(file => {
-                        total++;
-                        if (file.type === 'video') video++;
-                        if (file.type === 'audio') audio++;
-                        if (file.has_subtitle) hasSubtitle++;
-                        else noSubtitle++;
-                        if (!fileListBody) return;
                         const row = document.createElement('tr');
                         row.dataset.path = file.path;
                         row.dataset.type = file.type;
                         row.innerHTML = `
-                            <td><input type="checkbox" class="file-checkbox"></td>
-                            <td class="status" style="cursor:pointer;">대기</td>
+                            <td><input type="checkbox" class="file-checkbox" ${file.has_subtitle ? 'disabled' : ''}></td>
+                            <td class="status">대기</td>
                             <td class="progress">-</td>
                             <td class="filename">${escapeHtml(file.name)}</td>
                             <td class="lang-code">${file.language || '-'}</td>
-                            <td class="subtitle-preview" title="자막 미리보기 클릭">-</td>
+                            <td class="subtitle-status">${file.has_subtitle ? 'O' : 'X'}</td>
+                            <td class="subtitle-preview">-</td>
+                            <td class="extract-embedded"><button class="extract-btn" title="내장 자막 추출">📝</button></td>
                         `;
                         fileListBody.appendChild(row);
                     });
                 } else {
-                    if (fileListBody) {
-                        fileListBody.innerHTML = '<tr><td colspan="6">자막 없는 파일을 찾을 수 없습니다.</td></tr>';
-                    }
-                }
-                // 클라이언트 사이드 필터링 적용
-                filterTableClientSide();
-
-                // 상태/자막 미리보기 클릭 이벤트 바인딩
-                document.querySelectorAll('#file-list .status').forEach(cell => {
-                    cell.onclick = function() {
-                        const row = cell.closest('tr');
-                        if (!row) return;
-                        const filePath = row.dataset.path;
-                        // 상세 작업 상황 모달 표시
-                        showProgressModal(filePath);
-                    };
-                });
-                document.querySelectorAll('#file-list .subtitle-preview').forEach(cell => {
-                    cell.onclick = function() {
-                        const row = cell.closest('tr');
-                        if (!row) return;
-                        const subtitle = cell.innerText || '-';
-                        showSubtitleModal(subtitle, row.querySelector('.filename')?.innerText || '');
-                    };
-                });
-
-                // 검색 결과 상세 표시
-                const batchStatus = document.getElementById('batch-status');
-                if (batchStatus) {
-                    batchStatus.innerHTML = `
-                        <div style="background:#f4f8ff;padding:10px;border-radius:6px;margin:8px 0;">
-                            <b>검색 결과 요약</b><br>
-                            총 <b>${total}</b>개 파일 (영상 <b>${video}</b>, 오디오 <b>${audio}</b>)<br>
-                            자막 없는 파일: <b>${noSubtitle}</b>개, 자막 있는 파일: <b>${hasSubtitle}</b>개
-                        </div>
-                    `;
+                    if (fileListBody) fileListBody.innerHTML = '<tr><td colspan="8">자막 없는 파일을 찾을 수 없습니다.</td></tr>';
                 }
             } catch (error) {
-                console.error("파일 목록 로드 중 오류:", error);
-                if (fileListBody) {
-                    fileListBody.innerHTML = `<tr><td colspan="6">파일 목록 로드 중 오류: ${error.message}</td></tr>`;
-                }
-                const batchStatus = document.getElementById('batch-status');
-                if (batchStatus) {
-                    batchStatus.textContent = `파일 검색 오류: ${error.message}`;
-                }
+                if (fileListBody) fileListBody.innerHTML = `<tr><td colspan="8">파일 목록 로드 중 오류: ${error.message}</td></tr>`;
             }
         }
 
@@ -604,7 +634,7 @@
             // 아무것도 표시되지 않는 경우 메시지 표시
             if (visibleCount === 0 && rows.length > 0) {
                 const fileListBody = document.getElementById('file-list');
-                fileListBody.innerHTML += `<tr><td colspan="6">선택한 필터에 해당하는 파일이 없습니다.</td></tr>`;
+                fileListBody.innerHTML += `<tr><td colspan="8">선택한 필터에 해당하는 파일이 없습니다.</td></tr>`;
             }
         }
 
@@ -615,6 +645,9 @@
             
             // 초기 디렉토리 및 파일 목록 로드
             navigateTo(currentRelativePath);
+
+            // 작업 현황 항상 표시: 샘플 renderJobList 호출 제거, 실제 fetchAndRenderJobs 호출
+            fetchAndRenderJobs();
 
             // Whisper 자막 생성기 타이틀 클릭 시 홈으로 이동 및 UI 초기화
             const appTitle = document.getElementById('app-title');
@@ -635,11 +668,11 @@
                     document.getElementById('batch-status').textContent = '';
                     // 파일 목록, 완료 목록, 작업 현황 등도 초기화
                     const fileListBody = document.getElementById('file-list');
-                    if (fileListBody) fileListBody.innerHTML = '<tr><td colspan="6">자막 없는 파일을 찾을 수 없습니다.</td></tr>';
+                    if (fileListBody) fileListBody.innerHTML = '<tr><td colspan="8">자막 없는 파일을 찾을 수 없습니다.</td></tr>';
                     const completedFiles = document.getElementById('completed-files');
                     if (completedFiles) completedFiles.innerHTML = '';
-                    const jobList = document.getElementById('job-list');
-                    if (jobList) jobList.innerHTML = '<li style="color:#888;">진행 중인 작업이 없습니다.</li>';
+                    // 작업 현황은 실제 fetchAndRenderJobs로 갱신
+                    fetchAndRenderJobs();
                 };
             }
 
@@ -648,7 +681,7 @@
             
             selectAllHeader.addEventListener('change', (event) => {
                 document.querySelectorAll('#file-list .file-checkbox').forEach(checkbox => {
-                    if (!checkbox.disabled && !checkbox.closest('tr').style.display === 'none') {
+                    if (!checkbox.disabled && checkbox.closest('tr').style.display !== 'none') {
                         checkbox.checked = event.target.checked;
                     }
                 });
@@ -763,12 +796,43 @@
                 }
             };
 
-            // 샘플 작업 현황 렌더링
-            renderJobList([
-                { filename: 'Boyhood.mp4', progress: 30, status: '진행중', language: 'en', model: 'small' },
-                { filename: 'Elemental.mp3', progress: 0, status: '대기', language: 'ko', model: 'base' },
-                { filename: 'Hercules.mp4', progress: 100, status: '완료', language: 'en', model: 'small' }
-            ]);
+            const modelDescriptions = {
+                tiny: "가장 빠름, 저사양 PC/테스트용 (권장: 1분 미만/1시간 영상)",
+                base: "빠름, 일상적 사용/저사양 PC (권장: 2~3분/1시간 영상)",
+                small: "중간 속도, 일반 PC/서버 (권장: 5~10분/1시간 영상)",
+                medium: "느림, 고성능 PC/서버 (권장: 15~30분/1시간 영상)",
+                large: "매우 느림, 고성능 GPU 필수 (권장: 30분 이상/1시간 영상)"
+            };
+            const langDescriptions = {
+                auto: "자동 인식: 대부분의 경우 권장 (언어 혼합/불확실 시)",
+                en: "영어: 영어만 포함된 영상에 권장",
+                ko: "한국어: 한국어만 포함된 영상에 권장",
+                ja: "일본어: 일본어만 포함된 영상에 권장",
+                zh: "중국어: 중국어만 포함된 영상에 권장",
+                fr: "프랑스어: 프랑스어만 포함된 영상에 권장"
+            };
+            function updateModelDesc() {
+                const sel = document.getElementById('model-select');
+                const desc = document.getElementById('model-desc');
+                desc.textContent = modelDescriptions[sel.value] || '';
+            }
+            function updateLangDesc() {
+                const sel = document.getElementById('whisper-lang');
+                const desc = document.getElementById('lang-desc');
+                desc.textContent = langDescriptions[sel.value] || '';
+            }
+            document.getElementById('model-select').addEventListener('change', updateModelDesc);
+            document.getElementById('whisper-lang').addEventListener('change', updateLangDesc);
+            updateModelDesc();
+            updateLangDesc();
+
+            // 자막 필터 변경 시 파일 목록 자동 갱신
+            const subtitleFilter = document.getElementById('subtitle-filter');
+            if (subtitleFilter) {
+                subtitleFilter.addEventListener('change', () => {
+                    scanCurrentDirectory();
+                });
+            }
         };
 
         // 모달창 관련 함수
@@ -783,10 +847,16 @@
             }
             modal.style.display = 'block';
             filePathElem.textContent = filePath;
-            logElem.textContent = '진행상태/로그를 여기에 표시';
+            // 로그 표시
+            const logs = window.whisperLogs[filePath] || [];
+            if (logs.length === 0) {
+                logElem.innerHTML = '<span style="color:#888;">로그가 없습니다.</span>';
+            } else {
+                logElem.innerHTML = logs.map(l => `<div style='margin-bottom:4px;'><span style='color:#888;font-size:0.95em;'>[${l.time}]</span> <b>${l.status || ''}</b> <span style='color:#aaa;'>(${l.type})</span> - ${l.message} <span style='color:#3498db;'>(${l.progress ?? '-'}%)</span></div>`).join('');
+            }
         }
-        // 자막 미리보기 모달 함수
-        function showSubtitleModal(subtitle, filename) {
+        // 자막 미리보기 모달 함수 (수정/삭제 기능 포함)
+        function showSubtitleModal(subtitle, filename, filePath) {
             const modal = document.getElementById('progress-modal');
             const filePathElem = document.getElementById('modal-file-path');
             const logElem = document.getElementById('modal-progress-log');
@@ -796,8 +866,114 @@
             }
             modal.style.display = 'block';
             filePathElem.textContent = filename + ' - 자막 미리보기';
-            logElem.innerHTML = `<pre style="white-space: pre-wrap;">${escapeHtml(subtitle)}</pre>`;
+            // 버튼 영역 생성
+            let btnArea = document.createElement('div');
+            btnArea.style.margin = '8px 0 12px 0';
+            // 수정 버튼
+            let editBtn = document.createElement('button');
+            editBtn.textContent = '수정';
+            editBtn.style.marginRight = '8px';
+            // 삭제 버튼
+            let deleteBtn = document.createElement('button');
+            deleteBtn.textContent = '삭제';
+            deleteBtn.style.background = '#e74c3c';
+            deleteBtn.style.color = '#fff';
+            // 버튼 삽입
+            logElem.innerHTML = '';
+            logElem.appendChild(btnArea);
+            btnArea.appendChild(editBtn);
+            btnArea.appendChild(deleteBtn);
+            // 자막 내용 표시
+            let pre = document.createElement('pre');
+            pre.style.whiteSpace = 'pre-wrap';
+            pre.textContent = subtitle;
+            logElem.appendChild(pre);
+            // 수정 버튼 클릭 시 textarea로 전환
+            editBtn.onclick = function() {
+                pre.style.display = 'none';
+                editBtn.style.display = 'none';
+                deleteBtn.style.display = 'none';
+                let textarea = document.createElement('textarea');
+                textarea.value = subtitle;
+                textarea.style.width = '100%';
+                textarea.style.height = '320px';
+                textarea.style.marginBottom = '8px';
+                logElem.appendChild(textarea);
+                // 저장/취소 버튼
+                let saveBtn = document.createElement('button');
+                saveBtn.textContent = '저장';
+                saveBtn.style.marginRight = '8px';
+                let cancelBtn = document.createElement('button');
+                cancelBtn.textContent = '취소';
+                logElem.appendChild(saveBtn);
+                logElem.appendChild(cancelBtn);
+                saveBtn.onclick = async function() {
+                    saveBtn.disabled = true;
+                    try {
+                        const res = await fetch('/api/update_subtitle', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ file_path: filePath, content: textarea.value })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            alert('자막이 저장되었습니다.');
+                            showSubtitleModal(textarea.value, filename, filePath);
+                        } else {
+                            alert('저장 실패: ' + (data.error || '알 수 없는 오류'));
+                            saveBtn.disabled = false;
+                        }
+                    } catch (e) {
+                        alert('저장 실패: ' + e.message);
+                        saveBtn.disabled = false;
+                    }
+                };
+                cancelBtn.onclick = function() {
+                    showSubtitleModal(subtitle, filename, filePath);
+                };
+            };
+            // 삭제 버튼 클릭 시
+            deleteBtn.onclick = async function() {
+                if (!confirm('정말로 이 자막 파일을 삭제하시겠습니까?')) return;
+                deleteBtn.disabled = true;
+                try {
+                    const res = await fetch('/api/delete_subtitle', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ file_path: filePath })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        alert('자막이 삭제되었습니다.');
+                        // 완료 리스트에서 제거
+                        window.completedFiles = window.completedFiles.filter(f => f.output_path !== filePath);
+                        renderCompletedFiles();
+                        modal.style.display = 'none';
+                    } else {
+                        alert('삭제 실패: ' + (data.error || '알 수 없는 오류'));
+                        deleteBtn.disabled = false;
+                    }
+                } catch (e) {
+                    alert('삭제 실패: ' + e.message);
+                    deleteBtn.disabled = false;
+                }
+            };
         }
+        // 자막 미리보기 API 호출 및 모달 표시 함수 추가
+        async function previewSubtitle(filePath, fileName) {
+            try {
+                const res = await fetch(`/api/preview_subtitle?file_path=${encodeURIComponent(filePath)}&max_lines=200`);
+                const data = await res.json();
+                if (data.success && data.lines) {
+                    showSubtitleModal(data.lines.join('\n'), fileName, filePath);
+                } else {
+                    showSubtitleModal('자막을 불러올 수 없습니다. ' + (data.error || ''), fileName, filePath);
+                }
+            } catch (e) {
+                showSubtitleModal('자막 미리보기 오류: ' + e.message, fileName, filePath);
+            }
+        }
+
         // 모달 닫기 버튼 이벤트 핸들러 (null 체크 추가)
         const modalCloseBtn = document.getElementById('modal-close');
         if (modalCloseBtn) {
@@ -930,6 +1106,310 @@
 
         // 3초마다 작업 목록 폴링
         setInterval(fetchAndRenderJobs, 3000);
+
+        // 내장 자막 추출 모달 함수 추가
+        async function showExtractModal(mediaPath, fileName) {
+            const modal = document.getElementById('extract-modal');
+            const resultDiv = document.getElementById('extract-modal-result');
+            const title = document.getElementById('extract-modal-title');
+            if (!modal || !resultDiv || !title) return;
+            modal.style.display = 'block';
+            title.textContent = `내장 자막 추출 결과: ${fileName}`;
+            resultDiv.innerHTML = '자막 추출 중...';
+            try {
+                const res = await fetch('/api/extract_subtitles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ media_path: mediaPath })
+                });
+                const data = await res.json();
+                if (data.error) {
+                    resultDiv.innerHTML = `<span style='color:#d00;'>오류: ${data.error}</span>`;
+                    return;
+                }
+                if (!data.tracks || data.tracks.length === 0) {
+                    resultDiv.innerHTML = '<span>내장 자막 트랙이 없습니다.</span>';
+                    return;
+                }
+                let html = `<table class='subtitle-extract-list'><thead><tr><th>트랙</th><th>언어</th><th>포맷</th><th>경로</th><th>상태</th><th>미리보기</th><th>저장</th></tr></thead><tbody>`;
+                data.tracks.forEach(track => {
+                    const saveBtn = `<button class='btn-save' data-in='${track.output_path}' data-out='${track.output_path.replace(/\.[^.]+$/, '.srt')}'>SRT로 저장</button>`;
+                    html += `<tr>
+                        <td>${track.track}</td>
+                        <td>${track.language}</td>
+                        <td>${track.format}</td>
+                        <td>${track.output_path}</td>
+                        <td>${track.status === 'pending' ? '대기' : track.status}</td>
+                        <td><button class='btn-preview' data-path='${track.output_path}'>보기</button></td>
+                        <td class='save-cell'>${saveBtn}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                resultDiv.innerHTML = html;
+                // 미리보기 버튼 이벤트
+                resultDiv.querySelectorAll('.btn-preview').forEach(btn => {
+                    btn.onclick = function() {
+                        const path = btn.getAttribute('data-path');
+                        alert(path + ' (샘플 자막 내용)');
+                    };
+                });
+                // 저장 버튼 이벤트
+                resultDiv.querySelectorAll('.btn-save').forEach(btn => {
+                    btn.onclick = async function() {
+                        const inPath = btn.getAttribute('data-in');
+                        const outPath = btn.getAttribute('data-out');
+                        btn.disabled = true;
+                        btn.textContent = '저장 중...';
+                        try {
+                            const res = await fetch('/api/convert_subtitle', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ input_path: inPath, output_path: outPath, target_format: 'srt' })
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                                btn.parentElement.innerHTML = `<span style='color:#1a5dab;font-weight:bold;'>저장 완료</span>`;
+                            } else {
+                                btn.disabled = false;
+                                btn.textContent = 'SRT로 저장';
+                                alert('저장 실패: ' + (data.error || '알 수 없는 오류'));
+                            }
+                        } catch (e) {
+                            btn.disabled = false;
+                            btn.textContent = 'SRT로 저장';
+                            alert('저장 실패: ' + e.message);
+                        }
+                    };
+                });
+            } catch (e) {
+                resultDiv.innerHTML = `<span style='color:#d00;'>오류: ${e.message}</span>`;
+            }
+        };
+        document.getElementById('extract-modal-close').onclick = function() {
+            document.getElementById('extract-modal').style.display = 'none';
+        };
+        window.onclick = function(event) {
+            const modal = document.getElementById('extract-modal');
+            if (modal && event.target === modal) {
+                modal.style.display = 'none';
+            }
+        };
+
+        // 외부 자막 다운로드 버튼 이벤트 핸들러
+        const downloadBtn = document.getElementById('download-external-btn');
+        downloadBtn.onclick = async function() {
+            downloadBtn.disabled = true;
+            downloadBtn.textContent = '다운로드 중...';
+            try {
+                const res = await fetch('/api/download_subtitle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: fileName, language: 'ko' })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    alert('다운로드 실패: ' + (data.error || '알 수 없는 오류'));
+                    downloadBtn.disabled = false;
+                    downloadBtn.textContent = '외부 자막 다운로드';
+                    return;
+                }
+                if (!data.candidates || data.candidates.length === 0) {
+                    alert('다운로드 가능한 자막이 없습니다.');
+                    downloadBtn.disabled = false;
+                    downloadBtn.textContent = '외부 자막 다운로드';
+                    return;
+                }
+                let html = `<table class='subtitle-extract-list'><thead><tr><th>파일명</th><th>언어</th><th>다운로드</th><th>싱크 대조</th></tr></thead><tbody>`;
+                data.candidates.forEach(cand => {
+                    const syncBtn = `<button class='btn-sync' data-media='${mediaPath}' data-sub='${cand.download_url}'>싱크 대조 및 자동 저장</button>`;
+                    html += `<tr>
+                        <td>${cand.filename}</td>
+                        <td>${cand.lang}</td>
+                        <td><a href='${cand.download_url}' target='_blank'>다운로드</a></td>
+                        <td class='sync-cell'>${syncBtn}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+                document.getElementById('extract-modal-result').innerHTML = html;
+                // 싱크 대조 버튼 이벤트
+                Array.from(document.querySelectorAll('.btn-sync')).forEach(btn => {
+                    btn.onclick = async function() {
+                        const mediaPath = btn.getAttribute('data-media');
+                        const subPath = btn.getAttribute('data-sub');
+                        btn.disabled = true;
+                        btn.textContent = '대조 중...';
+                        try {
+                            const res = await fetch('/api/check_subtitle_sync', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ media_path: mediaPath, subtitle_path: subPath, sample_count: 3 })
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                                // 품질 등급 계산
+                                let grade = '불량';
+                                if (data.score >= 0.9) grade = '매우 우수';
+                                else if (data.score >= 0.8) grade = '우수';
+                                else if (data.score >= 0.7) grade = '보통';
+                                // 상세 표 생성
+                                let html = `<div style='margin-bottom:8px;'><b>평균 점수:</b> <span style='color:#1a5dab;font-weight:bold;'>${(data.score*100).toFixed(1)}%</span> <b>품질:</b> <span style='color:#1a5dab;'>${grade}</span></div>`;
+                                html += `<table class='sync-detail-table' style='width:100%;border-collapse:collapse;font-size:0.97em;'>`;
+                                html += `<thead><tr style='background:#f8f8f8;'><th>샘플</th><th>구간(초)</th><th>유사도</th><th>STT</th><th>자막</th></tr></thead><tbody>`;
+                                (data.details||[]).forEach(d => {
+                                    let simColor = d.similarity >= 0.8 ? '#2ecc71' : (d.similarity >= 0.6 ? '#f39c12' : '#e74c3c');
+                                    html += `<tr><td style='text-align:center;'>${d.sample_idx}</td><td style='text-align:center;'>${d.start}~${d.end}</td><td style='text-align:center;color:${simColor};font-weight:bold;'>${(d.similarity*100).toFixed(1)}%</td><td>${escapeHtml(d.stt_text)}</td><td>${escapeHtml(d.subtitle_text)}</td></tr>`;
+                                });
+                                html += `</tbody></table>`;
+                                if (data.sync) {
+                                    html += `<div style='margin-top:8px;color:#1a5dab;font-weight:bold;'>싱크 일치, 자동 저장 완료</div>`;
+                                } else {
+                                    html += `<div style='margin-top:8px;color:#d00;font-weight:bold;'>싱크 불일치</div> <button class='btn-whisper'>Whisper로 자막 생성</button>`;
+                                }
+                                btn.parentElement.innerHTML = html;
+                                // Whisper 백업 버튼 이벤트
+                                const whisperBtn = btn.parentElement.querySelector('.btn-whisper');
+                                if (whisperBtn) {
+                                    whisperBtn.onclick = function() {
+                                        alert('Whisper 자막 생성 플로우로 이동(후속 구현)');
+                                    };
+                                }
+                            } else {
+                                btn.disabled = false;
+                                btn.textContent = '싱크 대조 및 자동 저장';
+                                alert('싱크 대조 실패: ' + (data.error || '알 수 없는 오류'));
+                            }
+                        } catch (e) {
+                            btn.disabled = false;
+                            btn.textContent = '싱크 대조 및 자동 저장';
+                            alert('싱크 대조 실패: ' + e.message);
+                        }
+                    };
+                });
+            } catch (e) {
+                alert('다운로드 실패: ' + e.message);
+                downloadBtn.disabled = false;
+                downloadBtn.textContent = '외부 자막 다운로드';
+            }
+        };
+
+        // 파일 목록을 카드로 렌더링하는 함수 추가
+        function renderMediaList(files) {
+            const mediaList = document.getElementById('media-list');
+            if (!mediaList) return;
+            mediaList.innerHTML = '';
+            if (!files || files.length === 0) {
+                mediaList.innerHTML = '<div class="media-card media-card-empty">자막 없는 파일을 찾을 수 없습니다.</div>';
+                return;
+            }
+            files.forEach(file => {
+                const card = document.createElement('div');
+                card.className = 'media-card';
+                card.dataset.path = file.path;
+                card.innerHTML = `
+                    <div class="media-main">
+                        <span class="media-filename">${escapeHtml(file.name)}</span>
+                        <span class="media-status">상태: 대기</span>
+                        <span class="media-lang">🌐 ${file.language || '-'}</span>
+                        <span class="media-subtitle">자막: ${file.has_subtitle ? '있음' : '없음'}</span>
+                    </div>
+                    <div class="media-actions">
+                        <button class="extract-btn">내장 자막</button>
+                        <button class="preview-btn">미리보기</button>
+                    </div>
+                `;
+                mediaList.appendChild(card);
+            });
+        }
+
+        // 햄버거 메뉴(사이드바) 토글 동작 추가
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+        const sidebar = document.getElementById('directory-browser');
+        if (sidebarToggle && sidebar) {
+            sidebarToggle.onclick = function(e) {
+                e.stopPropagation();
+                sidebar.classList.toggle('open');
+                // 오버레이 추가(모바일)
+                if (sidebar.classList.contains('open')) {
+                    let overlay = document.createElement('div');
+                    overlay.id = 'sidebar-overlay';
+                    overlay.style.position = 'fixed';
+                    overlay.style.top = '0';
+                    overlay.style.left = '0';
+                    overlay.style.width = '100vw';
+                    overlay.style.height = '100vh';
+                    overlay.style.background = 'rgba(0,0,0,0.08)';
+                    overlay.style.zIndex = '999';
+                    overlay.onclick = function() {
+                        sidebar.classList.remove('open');
+                        overlay.remove();
+                    };
+                    document.body.appendChild(overlay);
+                } else {
+                    const overlay = document.getElementById('sidebar-overlay');
+                    if (overlay) overlay.remove();
+                }
+            };
+            // 사이드바 내부 클릭 시 오버레이 닫힘 방지
+            sidebar.onclick = function(e) {
+                e.stopPropagation();
+            };
+            // 바깥 클릭 시 닫기(데스크탑)
+            document.body.addEventListener('click', function(e) {
+                if (window.innerWidth <= 900 && sidebar.classList.contains('open')) {
+                    if (!sidebar.contains(e.target) && e.target !== sidebarToggle) {
+                        sidebar.classList.remove('open');
+                        const overlay = document.getElementById('sidebar-overlay');
+                        if (overlay) overlay.remove();
+                    }
+                }
+            });
+        }
+
+        function renderCompletedFiles() {
+            const list = document.getElementById('completed-files');
+            if (!list) return;
+            if (window.completedFiles.length === 0) {
+                list.innerHTML = '<li style="color:#888;">완료된 파일이 없습니다.</li>';
+                return;
+            }
+            list.innerHTML = window.completedFiles.map(f => {
+                let statusColor = f.status === 'completed' ? '#2ecc71' : (f.status === 'skipped' ? '#f39c12' : (f.status === 'error' ? '#e74c3c' : '#95a5a6'));
+                let statusLabel = f.status === 'completed' ? '완료' : (f.status === 'skipped' ? '건너뜀' : (f.status === 'error' ? '오류' : '취소'));
+                let download = f.output_path ? `<a href="/download?file_path=${encodeURIComponent(f.output_path)}" target="_blank" style="color:#3498db;">다운로드</a>` : '';
+                let logBtn = `<button onclick="showProgressModal(${JSON.stringify(f.file_path)})" style="margin-left:8px;">로그 보기</button>`;
+                let previewBtn = f.output_path ? `<button onclick="previewSubtitle('${f.output_path}', '${escapeHtml(f.file_name)}')" style="margin-left:8px;">자막 미리보기</button>` : '';
+                let preview = f.subtitle_preview ? `<pre style='background:#f8f8f8;padding:4px 8px;border-radius:3px;margin:4px 0 0 0;'>${escapeHtml(f.subtitle_preview)}</pre>` : '';
+                return `<li style="margin-bottom:10px;"><b>${escapeHtml(f.file_name)}</b> <span style="color:${statusColor};font-weight:600;">[${statusLabel}]</span> ${download} ${logBtn} ${previewBtn} ${preview}</li>`;
+            }).join('');
+        }
+
+        // 901px 이상에서는 햄버거 메뉴 버튼 숨김 보장 (JS로도 보완)
+        function updateSidebarToggleVisibility() {
+            const sidebarToggle = document.getElementById('sidebar-toggle');
+            if (!sidebarToggle) return;
+            if (window.innerWidth >= 901) {
+                sidebarToggle.style.display = 'none';
+            } else {
+                sidebarToggle.style.display = 'block';
+            }
+        }
+        window.addEventListener('resize', updateSidebarToggleVisibility);
+        document.addEventListener('DOMContentLoaded', updateSidebarToggleVisibility);
+
+        // 메인 콘텐츠 영역 제목 변경 (초기화 및 폴더 이동 시)
+        function updateFileListHeader() {
+            const fileListHeader = document.getElementById('file-list-header');
+            if (fileListHeader) {
+                fileListHeader.textContent = '미디어 파일 목록 (' + (currentRelativePath ? '/' + currentRelativePath : '루트') + ')';
+            }
+        }
+        updateFileListHeader();
+        // 폴더 이동 시에도 적용
+        const origNavigateTo = navigateTo;
+        navigateTo = async function(relativePath) {
+            await origNavigateTo(relativePath);
+            updateFileListHeader();
+        };
     </script>
 </body>
 </html>

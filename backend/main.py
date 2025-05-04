@@ -1,7 +1,7 @@
 import os
 import sys
 import uuid # client_id 생성을 위해 추가
-from fastapi import FastAPI, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, HTTPException, Query, Body
+from fastapi import FastAPI, Request, BackgroundTasks, WebSocket, WebSocketDisconnect, HTTPException, Query, Body, APIRouter
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse # JSONResponse 추가
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -11,6 +11,10 @@ import urllib.parse # URL 인코딩된 경로 디코딩
 from typing import List, Optional, Dict # Optional 추가
 import json
 import asyncio # 추가
+from backend.services.file_scanner import extract_embedded_subtitles, convert_and_save_subtitle
+from backend.services.subtitle_downloader import download_subtitle_from_opensubtitles, download_and_save_subtitle
+from backend.services.sync_checker import check_subtitle_sync, advanced_sync_and_save
+from fastapi import status
 
 # 현재 디렉토리를 가져와서 import 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -235,7 +239,7 @@ async def run_whisper_endpoint(request: Request, background_tasks: BackgroundTas
     # Whisper 작업 등록 (job_manager)
     for file_path in files_to_process:
         filename = os.path.basename(file_path)
-        job_manager.add_job(filename, language, model_size)
+        job_manager.add_job(filename, language, model_size, client_id=client_id, file_path=file_path)
 
     # 백그라운드 작업 정의
     async def batch_task():
@@ -324,19 +328,203 @@ def job_action(job_id: str, action: str = Body(..., embed=True)):
     job = job_manager.get_job(job_id)
     if not job:
         return {"error": "Job not found"}
+    client_id = job_manager.get_client_id(job_id)
     if action == "pause":
         job_manager.set_status(job_id, "일시정지")
     elif action == "stop":
         job_manager.set_status(job_id, "중단됨")
         job_manager.set_progress(job_id, 0)
+        # 실제 실행 중인 작업도 중단
+        if client_id:
+            loop = asyncio.get_event_loop()
+            loop.create_task(manager.cancel_task(client_id))
     elif action == "resume":
         job_manager.set_status(job_id, "진행중")
     elif action == "delete":
         job_manager.delete_job(job_id)
+        # 실제 실행 중인 작업도 중단
+        if client_id:
+            loop = asyncio.get_event_loop()
+            loop.create_task(manager.cancel_task(client_id))
         return {"result": "deleted"}
     else:
         return {"error": "Unknown action"}
     return {"result": "ok", "job": job_manager.get_job(job_id)}
+
+@app.post("/api/extract_subtitles")
+async def api_extract_subtitles(request: Request):
+    data = await request.json()
+    media_path = data.get("media_path")
+    if not media_path:
+        raise HTTPException(status_code=400, detail="media_path 파라미터가 필요합니다.")
+    try:
+        result = extract_embedded_subtitles(media_path)
+        return JSONResponse(content={"tracks": result})
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.post("/api/convert_subtitle")
+async def api_convert_subtitle(request: Request):
+    data = await request.json()
+    input_path = data.get("input_path")
+    output_path = data.get("output_path")
+    target_format = data.get("target_format", "srt")
+    if not input_path or not output_path:
+        raise HTTPException(status_code=400, detail="input_path, output_path 파라미터가 필요합니다.")
+    try:
+        result = convert_and_save_subtitle(input_path, output_path, target_format)
+        return JSONResponse(content=result)
+    except Exception as e:
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/download_subtitle")
+async def api_download_subtitle(request: Request):
+    data = await request.json()
+    filename = data.get("filename")
+    language = data.get("language", "ko")
+    if not filename:
+        raise HTTPException(status_code=400, detail="filename 파라미터가 필요합니다.")
+    try:
+        result = download_subtitle_from_opensubtitles(filename, language)
+        return JSONResponse(content=result)
+    except Exception as e:
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/check_subtitle_sync")
+async def api_check_subtitle_sync(request: Request):
+    data = await request.json()
+    media_path = data.get("media_path")
+    subtitle_path = data.get("subtitle_path")
+    sample_count = data.get("sample_count", 3)
+    if not media_path or not subtitle_path:
+        raise HTTPException(status_code=400, detail="media_path, subtitle_path 파라미터가 필요합니다.")
+    try:
+        result = check_subtitle_sync(media_path, subtitle_path, sample_count)
+        return JSONResponse(content=result)
+    except Exception as e:
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/api/preview_subtitle")
+def preview_subtitle(file_path: str = Query(..., description="자막 파일 경로"), max_lines: int = 200):
+    """SRT 등 자막 파일의 앞부분(max_lines)만 미리보기로 반환"""
+    if not os.path.exists(file_path):
+        return {"error": "파일이 존재하지 않습니다."}
+    try:
+        lines = []
+        with open(file_path, "r", encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                if i >= max_lines:
+                    lines.append("... (이하 생략)")
+                    break
+                lines.append(line.rstrip())
+        return {"success": True, "lines": lines}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/api/update_subtitle")
+async def update_subtitle(request: Request):
+    data = await request.json()
+    file_path = data.get("file_path")
+    content = data.get("content")
+    if not file_path or content is None:
+        raise HTTPException(status_code=400, detail="file_path, content 파라미터가 필요합니다.")
+    try:
+        target_path = Path(file_path).resolve()
+        if not target_path.is_file():
+            return {"success": False, "error": "파일이 존재하지 않습니다."}
+        if not target_path.suffix.lower() in ['.srt', '.vtt', '.smi', '.ass']:
+            return {"success": False, "error": "지원하지 않는 자막 파일 형식입니다."}
+        if not is_safe_path(target_path):
+            return {"success": False, "error": "허용되지 않은 경로입니다."}
+        with open(target_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return {"success": True, "message": "자막 파일이 성공적으로 수정되었습니다."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/delete_subtitle")
+async def delete_subtitle(request: Request):
+    data = await request.json()
+    file_path = data.get("file_path")
+    if not file_path:
+        raise HTTPException(status_code=400, detail="file_path 파라미터가 필요합니다.")
+    try:
+        target_path = Path(file_path).resolve()
+        if not target_path.is_file():
+            return {"success": False, "error": "파일이 존재하지 않습니다."}
+        if not target_path.suffix.lower() in ['.srt', '.vtt', '.smi', '.ass']:
+            return {"success": False, "error": "지원하지 않는 자막 파일 형식입니다."}
+        if not is_safe_path(target_path):
+            return {"success": False, "error": "허용되지 않은 경로입니다."}
+        target_path.unlink()
+        return {"success": True, "message": "자막 파일이 성공적으로 삭제되었습니다."}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/download_and_save_subtitle")
+async def api_download_and_save_subtitle(request: Request):
+    data = await request.json()
+    download_url = data.get("download_url")
+    save_path = data.get("save_path")
+    if not download_url or not save_path:
+        raise HTTPException(status_code=400, detail="download_url, save_path 파라미터가 필요합니다.")
+    try:
+        target_path = Path(save_path).resolve()
+        if not is_safe_path(target_path):
+            return {"success": False, "error": "허용되지 않은 경로입니다."}
+        result = download_and_save_subtitle(download_url, str(target_path))
+        return result
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/auto_download_and_sync_subtitle")
+async def api_auto_download_and_sync_subtitle(request: Request):
+    """
+    외부 자막 후보 중 best_match를 자동 다운로드 → 싱크 대조/보정/저장까지 자동화
+    """
+    data = await request.json()
+    media_path = data.get("media_path")
+    language = data.get("language", "en")  # 기본값 en
+    if not media_path:
+        raise HTTPException(status_code=400, detail="media_path 파라미터가 필요합니다.")
+    try:
+        # 1. 후보 리스트/best_match 획득
+        filename = os.path.basename(media_path)
+        result = download_subtitle_from_opensubtitles(filename, language)
+        candidates = result.get('candidates', [])
+        best_match = result.get('best_match')
+        if not best_match or not best_match.get('download_url'):
+            return {"success": False, "error": "일치하는 자막 후보가 없습니다.", "candidates": candidates}
+        # 2. 자막 다운로드 경로 결정
+        save_dir = os.path.dirname(media_path)
+        save_name = best_match['filename']
+        save_path = os.path.join(save_dir, save_name)
+        # 3. 경로 보안 체크
+        target_path = Path(save_path).resolve()
+        if not is_safe_path(target_path):
+            return {"success": False, "error": "허용되지 않은 경로입니다.", "save_path": str(target_path)}
+        # 4. 자막 다운로드
+        dl_result = download_and_save_subtitle(best_match['download_url'], str(target_path))
+        if not dl_result.get('success'):
+            return {"success": False, "error": "자막 다운로드 실패: " + dl_result.get('error', ''), "candidates": candidates, "best_match": best_match}
+        # 5. 싱크 대조/보정/저장 (advanced)
+        sync_result = advanced_sync_and_save(media_path, str(target_path))
+        # 6. 결과 반환
+        return {
+            "success": sync_result.get('success', False),
+            "candidates": candidates,
+            "best_match": best_match,
+            "downloaded_path": str(target_path),
+            "sync_result": sync_result,
+            "final_subtitle_path": sync_result.get('save_path'),
+            "sync": sync_result.get('sync'),
+            "score": sync_result.get('score'),
+            "avg_offset": sync_result.get('avg_offset'),
+            "details": sync_result.get('details'),
+            "error": sync_result.get('error')
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # TODO: 완료된 파일 목록 제공 및 다운로드 기능 구현
 

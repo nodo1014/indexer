@@ -1,7 +1,8 @@
 import os
 import logging
 from pathlib import Path
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Any
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +13,8 @@ AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a"}
 SUBTITLE_EXTENSIONS = {".srt", ".vtt", ".smi", ".ass"}
 
 def scan_media_files(directory: str, filter_video: bool = True, filter_audio: bool = True) -> List[Dict[str, str]]:
-    """지정된 디렉토리와 하위 디렉토리를 스캔하여 자막 없는 미디어 파일을 찾습니다 (타입 필터링 적용)."""
-    media_files_without_subs: List[Dict[str, str]] = []
+    """지정된 디렉토리와 하위 디렉토리를 스캔하여 미디어 파일(자막 유무 포함) 전체를 반환합니다 (타입 필터링 적용)."""
+    media_files: List[Dict[str, str]] = []
     processed_basenames: Set[str] = set()
     allowed_extensions: Set[str] = set()
     if filter_video:
@@ -43,53 +44,45 @@ def scan_media_files(directory: str, filter_video: bool = True, filter_audio: bo
 
                 # 1. 미디어 파일인지 확인 (선택된 필터 기준)
                 if file_ext in allowed_extensions:
-                    # 2. 자막 파일이 있는지 확인
-                    has_subtitle = False
+                    subtitle_files = []
                     for sub_ext in SUBTITLE_EXTENSIONS:
                         # 기본 자막 (movie.srt)
                         subtitle_path = item.with_suffix(sub_ext)
                         if subtitle_path.exists():
-                            has_subtitle = True
-                            break
+                            subtitle_files.append(subtitle_path.name)
                         # 언어 코드 포함 자막 (movie_en.srt)
                         parent_dir = item.parent
-                        for lang_code in ['_en', '_ko', '_ja', '_zh']: # 필요한 언어 코드 확장 가능
+                        for lang_code in ['_en', '_ko', '_ja', '_zh']:
                             lang_sub_name = f"{base_name}{lang_code}{sub_ext}"
                             lang_sub_path = parent_dir / lang_sub_name
                             if lang_sub_path.exists():
-                                has_subtitle = True
-                                break
-                        if has_subtitle:
-                            break
+                                subtitle_files.append(lang_sub_path.name)
+                    has_subtitle = len(subtitle_files) > 0
+                    media_files.append({
+                        "name": item.name,
+                        "path": full_path_str,
+                        "type": "video" if file_ext in VIDEO_EXTENSIONS else "audio",
+                        "has_subtitle": has_subtitle,
+                        "subtitle_files": subtitle_files
+                    })
+                    processed_basenames.add(base_name)
+                    logger.debug(f"미디어 파일: {item.name}, 자막: {subtitle_files if has_subtitle else '없음'}")
 
-                    if has_subtitle:
-                        processed_basenames.add(base_name) # 자막 있으면 처리됨으로 간주
-                        logger.debug(f"자막 파일 발견, 건너뜀: {item.name}")
-                    else:
-                        media_files_without_subs.append({
-                            "name": item.name,
-                            "path": full_path_str,
-                            "type": "video" if file_ext in VIDEO_EXTENSIONS else "audio",
-                            "has_subtitle": False
-                        })
-                        processed_basenames.add(base_name) # 자막 없는 미디어도 처리됨으로 간주
-                        logger.debug(f"자막 없는 미디어 파일 발견: {item.name} (Type: {'Video' if file_ext in VIDEO_EXTENSIONS else 'Audio'})")
-
-                # 3. 자막 파일이면, 해당 파일명(언어코드 제외)을 처리된 것으로 간주
+                # 2. 자막 파일이면, 해당 파일명(언어코드 제외)을 처리된 것으로 간주
                 elif file_ext in SUBTITLE_EXTENSIONS:
                     processed_basenames.add(base_name)
                     for lang_code in ['_en', '_ko', '_ja', '_zh']:
-                         if base_name.endswith(lang_code):
+                        if base_name.endswith(lang_code):
                             original_base_name = base_name[:-len(lang_code)]
                             processed_basenames.add(original_base_name)
                             break
 
-        logger.info(f"디렉토리 스캔 완료: {len(media_files_without_subs)}개의 자막 없는 미디어 파일 발견 (필터 적용됨)")
+        logger.info(f"디렉토리 스캔 완료: {len(media_files)}개의 미디어 파일 반환 (자막 유무 포함)")
 
     except Exception as e:
         logger.error(f"디렉토리 스캔 중 오류 발생: {e}", exc_info=True)
 
-    return sorted(media_files_without_subs, key=lambda x: x['path'])
+    return sorted(media_files, key=lambda x: x['path'])
 
 def list_subdirectories(directory: str) -> List[str]:
     """지정된 디렉토리의 하위 디렉토리 목록(절대 경로)을 반환합니다."""
@@ -172,6 +165,77 @@ def list_subdirectories_with_media_counts(directory: str) -> list:
     except Exception as e:
         logger.error(f"[list_subdirectories_with_media_counts] 오류: {e}", exc_info=True)
     return subdirs_info
+
+def extract_embedded_subtitles(media_path: str) -> List[Dict[str, Any]]:
+    """
+    mkv/mp4/avi 등 미디어 파일에서 내장(임베디드) 자막 트랙을 실제로 추출한다.
+    ffprobe로 트랙 정보 추출 후, ffmpeg로 각 트랙을 .srt로 추출한다.
+    """
+    import json
+    results = []
+    try:
+        # ffprobe로 자막 트랙 정보 추출
+        cmd = [
+            'ffprobe', '-v', 'error', '-select_streams', 's',
+            '-show_entries', 'stream=index:stream_tags=language',
+            '-of', 'json', media_path
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            return [{'track': None, 'language': None, 'format': None, 'output_path': None, 'status': 'error', 'error': proc.stderr}]
+        info = json.loads(proc.stdout)
+        streams = info.get('streams', [])
+        for stream in streams:
+            track_idx = stream.get('index')
+            lang = stream.get('tags', {}).get('language', 'und')
+            # 임시 파일명: 원본명_track#.srt
+            out_path = f"{media_path}_track{track_idx}.srt"
+            # 실제 추출 명령: ffmpeg -y -i input -map 0:s:{track_idx} out_path
+            ffmpeg_cmd = [
+                'ffmpeg', '-y', '-i', media_path, '-map', f'0:s:{track_idx}', out_path
+            ]
+            ffmpeg_proc = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+            if ffmpeg_proc.returncode == 0 and os.path.exists(out_path):
+                results.append({
+                    'track': track_idx,
+                    'language': lang,
+                    'format': 'srt',
+                    'output_path': out_path,
+                    'status': 'extracted',
+                    'error': None
+                })
+            else:
+                results.append({
+                    'track': track_idx,
+                    'language': lang,
+                    'format': 'srt',
+                    'output_path': out_path,
+                    'status': 'error',
+                    'error': ffmpeg_proc.stderr
+                })
+    except Exception as e:
+        results.append({'track': None, 'language': None, 'format': None, 'output_path': None, 'status': 'error', 'error': str(e)})
+    return results
+
+def convert_and_save_subtitle(input_path: str, output_path: str, target_format: str = 'srt') -> dict:
+    """
+    ffmpeg를 사용해 자막 파일을 SRT 등 표준 포맷으로 변환/저장한다.
+    input_path: 원본 자막 파일 경로
+    output_path: 저장할 파일 경로
+    target_format: 변환할 포맷 (기본 srt)
+    반환: {'success': bool, 'output_path': str, 'error': str|None}
+    """
+    try:
+        cmd = [
+            'ffmpeg', '-y', '-i', input_path, output_path
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            return {'success': True, 'output_path': output_path, 'error': None}
+        else:
+            return {'success': False, 'output_path': output_path, 'error': proc.stderr}
+    except Exception as e:
+        return {'success': False, 'output_path': output_path, 'error': str(e)}
 
 # 테스트용 코드 업데이트
 if __name__ == "__main__":

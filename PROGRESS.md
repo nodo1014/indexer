@@ -72,6 +72,13 @@ NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로
 8.  **[ ] 배포 및 테스트:**
     *   [ ] Ubuntu 서버 환경 설정 (NAS 마운트 확인)
     *   [ ] 실제 미디어 파일 테스트
+9.  **[ ] 2단계: 자막 확보 자동화 프로세스 구현**
+    *   [ ] 자막 존재 검사 로직 추가
+    *   [ ] 내장 자막 추출/변환/검증 기능 구현 (ffmpeg, pysubs2 등 활용)
+    *   [ ] 외부 자막 다운로드/싱크 대조/자동 저장 기능 구현 (OpenSubtitles API 등)
+    *   [ ] Whisper 자막 생성 백업 플로우 추가
+    *   [ ] 각 단계별 UI/UX/상태관리/실패 안내 구현
+    *   [ ] 전체 자동화 워크플로우 통합 및 테스트
 
 ## 🔗 관련 파일
 
@@ -110,6 +117,7 @@ NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로
 1. Ubuntu 서버에 배포 및 실제 NAS 환경에서 테스트
 2. 성능 최적화 (대용량 디렉토리 처리 개선)
 3. 사용자 피드백 수집 및 추가 기능 개발 검토 
+4. 2단계 자막 확보 자동화 프로세스 개발 및 통합 테스트
 
 # 진행 상황 및 변경 이력 (최신순)
 
@@ -130,5 +138,68 @@ NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로
   - 상태 클릭: 상세 작업 상황 모달, 자막 미리보기 클릭: 전체 자막 모달(스크롤 가능) (index.html)
 - **백엔드 파일 목록 응답에 has_subtitle 필드 추가**
   - 프론트 통계 계산 정상화 (file_scanner.py)
+
+## 2024-06-XX
+
+- **2단계 자막 확보 자동화 프로세스 설계 및 개발 시작**
+  - 자막 존재 검사 → 내장 자막 추출/변환 → 외부 자막 다운로드/싱크 대조 → Whisper 자막 생성 순서로 자동화 플로우 설계
+  - 각 단계별 UI/UX/상태관리/실패 안내 설계
+  - PROGRESS.md에 2단계 개발 계획 및 워크플로우 반영
+
+### [1단계] 자막 존재 검사 및 UI 개선 (2024-06-13)
+- backend/services/file_scanner.py: scan_media_files 함수 확장, 자막 유무(has_subtitle), 자막 파일 리스트(subtitle_files) 포함 전체 미디어 반환
+- backend/templates/index.html: 파일 목록 테이블에 자막 상태 컬럼 추가, 자막이 있는 파일은 체크박스 비활성화, 자막 상태(있음/없음) 표시
+- 사용자는 자막 유무를 한눈에 확인하고, 자막 없는 파일만 선택 가능
+
+### [2단계] 내장 자막 변환/저장(SRT로 저장) 기능 통합 (2024-06-13)
+- backend/services/file_scanner.py: convert_and_save_subtitle 함수 추가 (ffmpeg로 자막 SRT 변환/저장)
+- backend/main.py: /api/convert_subtitle POST 엔드포인트 추가 (input_path, output_path, target_format)
+- backend/templates/index.html: 내장 자막 추출 결과 테이블에 'SRT로 저장' 버튼 추가, 클릭 시 변환 API 호출 후 성공 시 '저장 완료'로 상태 변경
+
+### [3단계] 외부 자막 다운로드(목업) 기능 통합 (2024-06-13)
+- backend/services/subtitle_downloader.py: download_subtitle_from_opensubtitles 함수(목업) 추가 (파일명/언어 기반 후보 리스트 반환)
+- backend/main.py: /api/download_subtitle POST 엔드포인트 추가 (filename, language)
+- backend/templates/index.html: 내장 자막 추출 모달에 '외부 자막 다운로드' 버튼 추가, 클릭 시 후보 리스트(파일명/언어/다운로드 링크) 테이블 표시
+- 실제 API 연동/다운로드/싱크 대조/자동 저장 등은 후속 구현 예정
+
+## 2024-06-XX (외부 자막 자동 다운로드 및 싱크 대조/보정/저장 완전 자동화)
+
+- **외부 자막 자동 다운로드 및 싱크 대조/보정/저장 완전 자동화**
+  - /api/auto_download_and_sync_subtitle 엔드포인트에서
+    - OpenSubtitles 등에서 영어(en) 자막 후보 자동 검색 및 best match 다운로드
+    - 다운로드된 자막의 첫 부분(0~2분) Whisper(tiny) STT와 자막 대조 → 일치하지 않으면 중단
+    - 일치하면 앞/중/끝 3구간에서 싱크 오차 측정 및 평균 오프셋 계산
+    - 오프셋이 0.5초 이상이면 pysrt로 자막 전체 shift 보정
+    - 최종 자막을 미디어와 같은 폴더, 같은 이름(.srt)로 저장
+    - API 결과로 싱크 여부, 점수, 오프셋, 저장 경로 등 상세 정보 반환
+  - Whisper tiny 모델로 빠른 대조, 언어 기본값 en 고정
+  - 관련 파일: backend/main.py, backend/services/sync_checker.py, backend/services/subtitle_downloader.py
+
+## 2024-06-XX (자막 싱크 자동 대조/품질 평가 고도화)
+
+- **자막 싱크 자동 대조/품질 평가 기능 고도화**
+  - 미디어 파일에서 N개 구간(앞/중/끝 등) 샘플링
+  - 각 구간을 Whisper로 STT 변환
+  - SRT 등 자막에서 해당 구간 텍스트 추출
+  - Levenshtein 등으로 유사도/싱크 오차 계산
+  - 구간별/전체 점수, 품질 등급, 상세 리포트 반환
+  - API 반환: {'success': bool, 'sync': bool, 'score': float, 'details': [...], 'error': str|None}
+  - 관련 파일: backend/services/sync_checker.py
+
+## 2024-06-XX (4단계: 자막 미리보기/수정/삭제 프론트-백엔드 연동)
+
+- **자막 미리보기/수정/삭제 기능 구현**
+  - 자막 미리보기 모달에 '수정' 및 '삭제' 버튼 추가 (index.html)
+  - '수정' 클릭 시 textarea로 편집, '저장' 시 /api/update_subtitle로 서버 반영, '취소' 시 원상복구
+  - '삭제' 클릭 시 /api/delete_subtitle로 서버에 삭제 요청, 성공 시 완료 리스트에서 제거 및 모달 닫힘
+  - 백엔드: /api/update_subtitle, /api/delete_subtitle 엔드포인트 구현 (main.py)
+  - 파일 경로 보안 체크, 예외 처리, 성공/실패 메시지 반환
+  - 관련 파일: backend/templates/index.html, backend/main.py
+
+## 2024-06-XX (Whisper 변환 subprocess 구조 리팩토링 - 향후 개발 예정)
+
+- **이 구조(별도 프로세스 실행, 즉시 중단)는 대용량/라지 모델 실수 방지 등 실서비스 환경에서 매우 중요하나,**
+- **현재는 외부 자막 다운로드/자동화 프로세스가 더 필수적이므로, Whisper subprocess 구조는 후순위로 미룸**
+- 실제 적용 시, 진행률/로그 실시간 연동, 좀비 프로세스 방지 등도 함께 고도화 예정
 
 --- 
