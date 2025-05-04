@@ -9,6 +9,22 @@
 - **탐색기 트리**: 각 폴더별 (영상 #, 오디오 #) 개수를 하위폴더까지 모두 포함해 집계하여 표시
 - 자막 미리보기, 다운로드, 상세 진행 로그 모달 등 다양한 UI/UX 제공
 
+## 실행 환경 (whisper ai 사용시 중요!)
+- proxmox ubuntu22.04 server
+- ryzen 5600g 16g 512nvme
+- No graphic card ( pip install 시, pytorch no-cpu 반영)
+
+## 실행/설치 주의사항
+- **반드시 가상환경(venv) 활성화 후 pip install 진행**
+- **requirements.txt는 pip freeze로 최신화됨**
+- **그래픽카드가 없는 환경에서는 pytorch 설치 시 no-cuda 버전 사용 필수**
+  - 예시: `pip install torch==<버전>+cpu -f https://download.pytorch.org/whl/torch_stable.html`
+- FastAPI 실행 시 반드시 프로젝트 루트(즉, backend가 아닌 indexer 폴더)에서 아래 명령어로 실행
+  ```bash
+  uvicorn backend.main:app --reload
+  ```
+- .env 파일에 NAS_MEDIA_PATH 등 환경변수 필수 설정
+
 ## 실행 방법
 
 1. Python 3.10+ 및 가상환경(venv) 준비
