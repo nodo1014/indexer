@@ -113,44 +113,64 @@
                 <div class="search-filter">
                     <input type="text" id="file-search" placeholder="파일명 검색..." class="search-input">
                 </div>
-                
                 <!-- 기존 필터 -->
                 <div class="filters" id="filters">
                     <label><input type="checkbox" id="filter-video" onchange="filterTableClientSide()" {{ "checked" if filter_video else "" }}> 영상</label>
                     <label><input type="checkbox" id="filter-audio" onchange="filterTableClientSide()" {{ "checked" if filter_audio else "" }}> 오디오</label>
                 </div>
-                
-                <div class="actions" id="actions">
-                     <label for="model-select">모델:</label>
-                     <select id="model-select">
-                         <option value="tiny" title="가장 빠름, 저사양 PC/테스트용">Tiny</option>
-                         <option value="base" title="빠름, 일상적 사용/저사양 PC">Base</option>
-                         <option value="small" title="중간 속도, 일반 PC/서버">Small</option>
-                         <option value="medium" title="느림, 고성능 PC/서버">Medium</option>
-                         <!-- <option value="large" title="매우 느림, 고성능 GPU 필수">Large</option> -->
-                     </select>
-                     <span id="model-desc" style="margin-left:8px;color:#888;font-size:0.97em;"></span>
-                    <label for="whisper-lang">언어:</label>
-                    <select id="whisper-lang">
-                        <optgroup label="자동/권장">
-                            <option value="auto" title="자동 인식 (권장)" selected>자동 인식</option>
-                        </optgroup>
-                        <optgroup label="주요 언어">
-                            <option value="en" title="영어">영어 (en)</option>
-                            <option value="ko" title="한국어">한국어 (ko)</option>
-                            <option value="ja" title="일본어">일본어 (ja)</option>
-                            <option value="zh" title="중국어">중국어 (zh)</option>
-                            <option value="fr" title="프랑스어">프랑스어 (fr)</option>
-                        </optgroup>
-                    </select>
-                    <span id="lang-desc" style="margin-left:8px;color:#888;font-size:0.97em;"></span>
-                    <button id="select-all">전체 선택</button>
-                    <button id="deselect-all">전체 해제</button>
-                    <button id="run-whisper" class="cta-button">선택 파일 자막 생성</button>
-                    <button id="stop-whisper" class="stop-button" style="display: none;">처리 중지</button>
-                </div>
             </div>
-
+            <!-- 탭 UI 시작 -->
+            <div class="tab-bar">
+              <button class="tab-btn active" id="tab-download">AI 자막 다운로드</button>
+              <button class="tab-btn" id="tab-whisper">음성으로 자막 생성</button>
+            </div>
+            <!-- AI 자막 다운로드 탭 컨텐츠 -->
+            <div class="tab-content active" id="tab-content-download">
+              <div style="display:flex; align-items:center; gap:18px; margin:18px 0; flex-wrap:wrap;">
+                <label for="download-lang">자막 언어:</label>
+                <select id="download-lang">
+                  <option value="en">영어 (en)</option>
+                  <option value="ko">한국어 (ko)</option>
+                  <option value="ja">일본어 (ja)</option>
+                  <option value="zh">중국어 (zh)</option>
+                </select>
+                <button class="cta-button">AI 자막 자동 다운로드</button>
+              </div>
+              <div style="background:#f6fafd; border:1px solid #e0e6ef; border-radius:8px; padding:14px; margin-top:14px; min-height:40px;">(AI 자막 다운로드 진행상황/결과 표시)</div>
+            </div>
+            <!-- 음성으로 자막 생성 탭 컨텐츠 -->
+            <div class="tab-content" id="tab-content-whisper">
+              <div class="actions" id="actions">
+                   <label for="model-select">모델:</label>
+                   <select id="model-select">
+                       <option value="tiny" title="가장 빠름, 저사양 PC/테스트용">Tiny</option>
+                       <option value="base" title="빠름, 일상적 사용/저사양 PC">Base</option>
+                       <option value="small" title="중간 속도, 일반 PC/서버">Small</option>
+                       <option value="medium" title="느림, 고성능 PC/서버">Medium</option>
+                   </select>
+                   <span id="model-desc" style="margin-left:8px;color:#888;font-size:0.97em;"></span>
+                  <label for="whisper-lang">언어:</label>
+                  <select id="whisper-lang">
+                      <optgroup label="자동/권장">
+                          <option value="auto" title="자동 인식 (권장)" selected>자동 인식</option>
+                      </optgroup>
+                      <optgroup label="주요 언어">
+                          <option value="en" title="영어">영어 (en)</option>
+                          <option value="ko" title="한국어">한국어 (ko)</option>
+                          <option value="ja" title="일본어">일본어 (ja)</option>
+                          <option value="zh" title="중국어">중국어 (zh)</option>
+                          <option value="fr" title="프랑스어">프랑스어 (fr)</option>
+                      </optgroup>
+                  </select>
+                  <span id="lang-desc" style="margin-left:8px;color:#888;font-size:0.97em;"></span>
+                  <button id="select-all">전체 선택</button>
+                  <button id="deselect-all">전체 해제</button>
+                  <button id="run-whisper" class="cta-button">선택 파일 자막 생성</button>
+                  <button id="stop-whisper" class="stop-button" style="display: none;">처리 중지</button>
+              </div>
+            </div>
+            <!-- 탭 UI 끝 -->
+            <!-- 파일 목록/완료 파일/배치 상태: 탭 UI와 분리, 항상 아래에 고정 -->
             <div class="table-wrapper" id="table-wrapper">
                 <table style="table-layout:fixed;width:100%;">
                     <thead>
@@ -170,7 +190,6 @@
                     </tbody>
                 </table>
             </div>
-
             <!-- [완료된 파일 영역 시작] -->
             <div id="completed-list" class="completed-list">
                 <h3>완료된 파일</h3>
@@ -179,7 +198,6 @@
                 </ul>
             </div>
             <!-- [완료된 파일 영역 끝] -->
-
             <!-- [배치 상태 영역 시작] -->
             <div id="batch-status" class="batch-status">
                  <!-- 배치 상태 메시지 표시 -->
@@ -1409,6 +1427,20 @@
         navigateTo = async function(relativePath) {
             await origNavigateTo(relativePath);
             updateFileListHeader();
+        };
+
+        // 탭 전환 로직
+        document.getElementById('tab-download').onclick = function() {
+            document.getElementById('tab-download').classList.add('active');
+            document.getElementById('tab-whisper').classList.remove('active');
+            document.getElementById('tab-content-download').classList.add('active');
+            document.getElementById('tab-content-whisper').classList.remove('active');
+        };
+        document.getElementById('tab-whisper').onclick = function() {
+            document.getElementById('tab-whisper').classList.add('active');
+            document.getElementById('tab-download').classList.remove('active');
+            document.getElementById('tab-content-whisper').classList.add('active');
+            document.getElementById('tab-content-download').classList.remove('active');
         };
     </script>
 </body>

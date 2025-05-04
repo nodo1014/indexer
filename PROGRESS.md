@@ -139,6 +139,23 @@ NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로
 - **백엔드 파일 목록 응답에 has_subtitle 필드 추가**
   - 프론트 통계 계산 정상화 (file_scanner.py)
 
+## 2024-06-13
+
+### [UI/UX] 탭 컴포넌트 디자인/높이/정렬 통일 및 고정 높이 적용
+- "AI 자막 다운로드"와 "음성으로 자막 생성" 탭의 폰트, 디자인, 높이 완전히 통일
+- .tab-bar, .tab-btn, .tab-content에 동일한 폰트, 크기, 높이, 패딩, 배경, border-radius 등 적용
+- .tab-content에 min-height, padding 추가로 탭 클릭 시 아래 요소가 움직이지 않도록 고정
+- 두 탭 모두 동일한 높이와 스타일로 일관성 확보
+- 관련 파일: backend/static/style.css, backend/templates/index.html
+
+### [리팩토링] JS 코드 3분할 및 index.html 분리 적용
+- main.js: 초기화, 폴더 이동, 체크박스, 필터 등 전체 컨트롤러 역할
+- websocket.js: WebSocket 연결, handleWebSocketMessage 등 실시간 통신 담당
+- render.js: renderJobList, renderCompletedFiles, renderMediaList 등 화면 출력 전담
+- index.html의 <script> 코드 완전 제거, 3개 JS 파일로 분리 및 import 적용
+- 각 JS 파일 window 네임스페이스 함수 연결, 전역 변수 세팅, 이벤트 바인딩 등 구현
+- 관련 파일: backend/static/main.js, backend/static/websocket.js, backend/static/render.js, backend/templates/index.html
+
 ## 2024-06-XX
 
 - **2단계 자막 확보 자동화 프로세스 설계 및 개발 시작**
