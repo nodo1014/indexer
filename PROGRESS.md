@@ -4,30 +4,39 @@
 
 NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로 찾아 Whisper를 이용해 자막을 생성하고 관리하는 시스템 구축.
 
-**구성:**
-
-*   **클라이언트 (MacBook/PyQt):** 미디어 분석, 작업 요청 (별도 프로젝트)
-*   **서버 (Ubuntu/FastAPI):** Whisper 자막 생성 처리 (현재 프로젝트)
-
-## 🗂️ 파일 구조 (예상)
+**최신 파일 구조 (2024-06-13 기준):**
 
 ```
 .
-├── venv/                   # 가상 환경
-├── backend/                # FastAPI 서버 관련 코드
-│   ├── main.py             # FastAPI 앱 진입점
-│   ├── routers/            # API 라우터
-│   │   └── whisper.py      # Whisper 관련 API
-│   ├── services/           # 비즈니스 로직 (파일 스캔, Whisper 실행 등)
-│   │   └── file_scanner.py
-│   │   └── whisper_runner.py
-│   ├── templates/          # Jinja2 HTML 템플릿
-│   │   └── index.html
-│   └── static/             # CSS, JS 등 정적 파일
-│       └── style.css
-├── requirements.txt        # Python 의존성 목록
-├── README.md               # 프로젝트 개요 및 사용법
-└── PROGRESS.md             # 작업 진행 상황 및 계획 (현재 파일)
+├── venv/                      # Python 가상환경
+├── backend/                   # FastAPI 서버
+│   ├── main.py                # FastAPI 앱 진입점
+│   ├── job_manager.py         # Whisper 작업 관리
+│   ├── connection_manager.py  # WebSocket 연결/관리
+│   ├── config.py              # 환경설정
+│   ├── services/              # 비즈니스 로직
+│   │   ├── file_scanner.py        # 미디어/자막 파일 스캔
+│   │   ├── whisper_runner.py      # Whisper 실행/관리
+│   │   ├── sync_checker.py        # 자막 싱크/품질 대조
+│   │   └── subtitle_downloader.py # 외부 자막 다운로드
+│   ├── static/                # 정적 파일 (JS/CSS)
+│   │   ├── main.js                # JS 컨트롤러
+│   │   ├── websocket.js           # 실시간 통신
+│   │   ├── render.js              # 화면 렌더링
+│   │   └── style.css              # 스타일(CSS)
+│   └── templates/             # Jinja2 HTML 템플릿
+│       └── index.html             # 메인 UI 템플릿
+├── ui_test/                   # UI 목업/테스트 HTML
+│   ├── realistic_subtitle_ui_mock.html
+│   ├── tab_subtitle_layout_mock.html
+│   ├── tab_subtitle_ui.html
+│   ├── layout_mockup_subtitle_extract.html
+│   └── layout_mockup.html
+├── requirements.txt           # Python 의존성 목록
+├── .env                       # 환경변수 파일
+├── .gitignore
+├── README.md                  # 프로젝트 개요/사용법
+└── PROGRESS.md                # 진행상황/워크플로우(현재 파일)
 ```
 
 ## 📝 작업 계획 및 진행 상황
@@ -218,5 +227,14 @@ NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로
 - **이 구조(별도 프로세스 실행, 즉시 중단)는 대용량/라지 모델 실수 방지 등 실서비스 환경에서 매우 중요하나,**
 - **현재는 외부 자막 다운로드/자동화 프로세스가 더 필수적이므로, Whisper subprocess 구조는 후순위로 미룸**
 - 실제 적용 시, 진행률/로그 실시간 연동, 좀비 프로세스 방지 등도 함께 고도화 예정
+
+## [탭 UI 분리 시도 및 현황] (2024-06-13)
+
+- 탭 UI(탭 버튼/컨텐츠)를 별도 JS 파일(tab-ui.js 등)로 완전히 분리/컴포넌트화하려는 시도를 여러 차례 진행함.
+- 그러나, 탐색기/파일 목록/완료 파일/배치 상태 등 주요 기능이 항상 DOM에 고정되어 있어야 하며,
+  탭 컨텐츠와의 구조적 분리, 이벤트 바인딩, 동적 렌더링 등에서 충돌/오류가 반복적으로 발생함.
+- 특히, 탐색기/파일리스트가 탭 내부로 들어가거나, 탭 전환에 따라 DOM이 사라지면 JS가 정상 동작하지 않음.
+- 이에 따라, 현재는 탭 UI(탭 버튼/컨텐츠)도 index.html 내에서 직접 관리하며, tab-ui.js 등 별도 파일로 분리하지 않기로 결정함.
+- 추후 구조적 리팩토링/컴포넌트화가 필요할 경우, 탐색기/파일리스트 등 주요 영역을 탭 외부에 완전히 고정하고, 탭 컨텐츠만 동적으로 관리하는 방식으로 재설계 필요.
 
 --- 
