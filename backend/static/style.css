@@ -633,20 +633,24 @@ th {
   color: #3498db;
   border-bottom: 3px solid #3498db;
   background: #fff;
-  font-weight: bold;
+  font-weight: 600;
 }
 .tab-btn:hover {
   color: #2980b9;
 }
 .tab-content {
-  display: none;
-  min-height: 180px;
-  padding: 24px 12px 18px 12px;
   background: #fff;
   border-radius: 0 0 7px 7px;
-  box-shadow: 0 2px 8px rgba(52,152,219,0.04);
+  border: 1px solid #e0e6ef;
+  border-top: none;
+  min-height: 200px;
+  padding: 24px 18px 18px 18px;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 1.04em;
+  font-size: 1.07em;
+  color: #222;
+  box-sizing: border-box;
+  margin-bottom: 0;
+  transition: min-height 0.2s;
 }
 .tab-content.active {
   display: block;

@@ -121,53 +121,59 @@
             </div>
             <!-- 탭 UI 시작 -->
             <div class="tab-bar">
-              <button class="tab-btn active" id="tab-download">AI 자막 다운로드</button>
-              <button class="tab-btn" id="tab-whisper">음성으로 자막 생성</button>
+                <button class="tab-btn active" id="tab-extract">자막 변환 및 추출</button>
+                <button class="tab-btn" id="tab-download">AI 자막 다운로드</button>
+                <button class="tab-btn" id="tab-whisper">음성으로 자막 생성</button>
             </div>
-            <!-- AI 자막 다운로드 탭 컨텐츠 -->
-            <div class="tab-content active" id="tab-content-download">
-              <div style="display:flex; align-items:center; gap:18px; margin:18px 0; flex-wrap:wrap;">
-                <label for="download-lang">자막 언어:</label>
-                <select id="download-lang">
-                  <option value="en">영어 (en)</option>
-                  <option value="ko">한국어 (ko)</option>
-                  <option value="ja">일본어 (ja)</option>
-                  <option value="zh">중국어 (zh)</option>
-                </select>
-                <button class="cta-button">AI 자막 자동 다운로드</button>
-              </div>
-              <div style="background:#f6fafd; border:1px solid #e0e6ef; border-radius:8px; padding:14px; margin-top:14px; min-height:40px;">(AI 자막 다운로드 진행상황/결과 표시)</div>
+            <div class="tab-content active" id="tab-content-extract">자막 추출</div>
+            <div class="tab-content" id="tab-content-download">
+                <div class="actions" id="actions-download">
+                    <label for="download-lang">언어:</label>
+                    <select id="download-lang">
+                        <option value="en">영어 (en)</option>
+                        <option value="ko">한국어 (ko)</option>
+                        <option value="ja">일본어 (ja)</option>
+                        <option value="zh">중국어 (zh)</option>
+                        <option value="fr">프랑스어 (fr)</option>
+                    </select>
+                    <button id="select-all-download">전체 선택</button>
+                    <button id="deselect-all-download">전체 해제</button>
+                    <button id="run-download" class="cta-button">선택 파일 AI 자막 다운로드</button>
+                    <span id="download-status" style="margin-left:12px;color:#888;font-size:0.97em;"></span>
+                </div>
+                <div style="margin-top:12px;color:#888;font-size:0.98em;">
+                    ※ 최종 자막(.srt)은 원본 미디어 파일과 같은 폴더에 자동 저장됩니다.
+                </div>
             </div>
-            <!-- 음성으로 자막 생성 탭 컨텐츠 -->
             <div class="tab-content" id="tab-content-whisper">
-              <div class="actions" id="actions">
-                   <label for="model-select">모델:</label>
-                   <select id="model-select">
-                       <option value="tiny" title="가장 빠름, 저사양 PC/테스트용">Tiny</option>
-                       <option value="base" title="빠름, 일상적 사용/저사양 PC">Base</option>
-                       <option value="small" title="중간 속도, 일반 PC/서버">Small</option>
-                       <option value="medium" title="느림, 고성능 PC/서버">Medium</option>
-                   </select>
-                   <span id="model-desc" style="margin-left:8px;color:#888;font-size:0.97em;"></span>
-                  <label for="whisper-lang">언어:</label>
-                  <select id="whisper-lang">
-                      <optgroup label="자동/권장">
-                          <option value="auto" title="자동 인식 (권장)" selected>자동 인식</option>
-                      </optgroup>
-                      <optgroup label="주요 언어">
-                          <option value="en" title="영어">영어 (en)</option>
-                          <option value="ko" title="한국어">한국어 (ko)</option>
-                          <option value="ja" title="일본어">일본어 (ja)</option>
-                          <option value="zh" title="중국어">중국어 (zh)</option>
-                          <option value="fr" title="프랑스어">프랑스어 (fr)</option>
-                      </optgroup>
-                  </select>
-                  <span id="lang-desc" style="margin-left:8px;color:#888;font-size:0.97em;"></span>
-                  <button id="select-all">전체 선택</button>
-                  <button id="deselect-all">전체 해제</button>
-                  <button id="run-whisper" class="cta-button">선택 파일 자막 생성</button>
-                  <button id="stop-whisper" class="stop-button" style="display: none;">처리 중지</button>
-              </div>
+                <div class="actions" id="actions">
+                    <label for="model-select">모델:</label>
+                    <select id="model-select">
+                        <option value="tiny" title="가장 빠름, 저사양 PC/테스트용">Tiny</option>
+                        <option value="base" title="빠름, 일상적 사용/저사양 PC">Base</option>
+                        <option value="small" title="중간 속도, 일반 PC/서버">Small</option>
+                        <option value="medium" title="느림, 고성능 PC/서버">Medium</option>
+                    </select>
+                    <span id="model-desc" style="margin-left:8px;color:#888;font-size:0.97em;"></span>
+                    <label for="whisper-lang">언어:</label>
+                    <select id="whisper-lang">
+                        <optgroup label="자동/권장">
+                            <option value="auto" title="자동 인식 (권장)" selected>자동 인식</option>
+                        </optgroup>
+                        <optgroup label="주요 언어">
+                            <option value="en" title="영어">영어 (en)</option>
+                            <option value="ko" title="한국어">한국어 (ko)</option>
+                            <option value="ja" title="일본어">일본어 (ja)</option>
+                            <option value="zh" title="중국어">중국어 (zh)</option>
+                            <option value="fr" title="프랑스어">프랑스어 (fr)</option>
+                        </optgroup>
+                    </select>
+                    <span id="lang-desc" style="margin-left:8px;color:#888;font-size:0.97em;"></span>
+                    <button id="select-all">전체 선택</button>
+                    <button id="deselect-all">전체 해제</button>
+                    <button id="run-whisper" class="cta-button">선택 파일 자막 생성</button>
+                    <button id="stop-whisper" class="stop-button" style="display: none;">처리 중지</button>
+                </div>
             </div>
             <!-- 탭 UI 끝 -->
             <!-- 파일 목록/완료 파일/배치 상태: 탭 UI와 분리, 항상 아래에 고정 -->
@@ -1430,18 +1436,20 @@
         };
 
         // 탭 전환 로직
-        document.getElementById('tab-download').onclick = function() {
-            document.getElementById('tab-download').classList.add('active');
-            document.getElementById('tab-whisper').classList.remove('active');
-            document.getElementById('tab-content-download').classList.add('active');
-            document.getElementById('tab-content-whisper').classList.remove('active');
-        };
-        document.getElementById('tab-whisper').onclick = function() {
-            document.getElementById('tab-whisper').classList.add('active');
-            document.getElementById('tab-download').classList.remove('active');
-            document.getElementById('tab-content-whisper').classList.add('active');
-            document.getElementById('tab-content-download').classList.remove('active');
-        };
+        function showTab(tab) {
+            const tabs = ['extract', 'download', 'whisper'];
+            tabs.forEach(t => {
+                document.getElementById('tab-' + t).classList.remove('active');
+                document.getElementById('tab-content-' + t).style.display = 'none';
+            });
+            document.getElementById('tab-' + tab).classList.add('active');
+            document.getElementById('tab-content-' + tab).style.display = 'block';
+        }
+        document.getElementById('tab-extract').onclick = () => showTab('extract');
+        document.getElementById('tab-download').onclick = () => showTab('download');
+        document.getElementById('tab-whisper').onclick = () => showTab('whisper');
+        // 첫 진입 시 extract 탭만 보이도록 초기화
+        showTab('extract');
     </script>
 </body>
 </html>

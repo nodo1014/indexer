@@ -175,6 +175,67 @@ async function fetchAndRenderJobs() {
 }
 window.fetchAndRenderJobs = fetchAndRenderJobs;
 
+// AI 자막 다운로드 탭 이벤트
+const runDownloadBtn = document.getElementById('run-download');
+const downloadStatus = document.getElementById('download-status');
+const selectAllDownloadBtn = document.getElementById('select-all-download');
+const deselectAllDownloadBtn = document.getElementById('deselect-all-download');
+
+if (runDownloadBtn) {
+  runDownloadBtn.onclick = async function() {
+    // 체크된 파일 목록
+    const selectedFiles = [];
+    document.querySelectorAll('#file-list .file-checkbox:checked').forEach(checkbox => {
+      if (checkbox.closest('tr').style.display !== 'none') {
+        selectedFiles.push(checkbox.closest('tr').dataset.path);
+      }
+    });
+    if (selectedFiles.length === 0) {
+      downloadStatus.textContent = '자막을 다운로드할 파일을 하나 이상 선택하세요.';
+      return;
+    }
+    const lang = document.getElementById('download-lang').value;
+    downloadStatus.textContent = '서버에 AI 자막 다운로드 요청 중...';
+    runDownloadBtn.disabled = true;
+    try {
+      const response = await fetch('/api/auto_download_and_sync_subtitle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: selectedFiles, language: lang })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        downloadStatus.textContent = 'AI 자막 다운로드 요청이 접수되었습니다. 진행상태는 작업 현황에서 확인하세요.';
+      } else {
+        downloadStatus.textContent = '오류: ' + (data.error || data.detail || '알 수 없는 오류');
+      }
+    } catch (e) {
+      downloadStatus.textContent = '서버 연결 오류: ' + e.message;
+    }
+    runDownloadBtn.disabled = false;
+  };
+}
+if (selectAllDownloadBtn) {
+  selectAllDownloadBtn.onclick = function() {
+    document.querySelectorAll('#file-list .file-checkbox').forEach(checkbox => {
+      if (!checkbox.disabled && checkbox.closest('tr').style.display !== 'none') {
+        checkbox.checked = true;
+      }
+    });
+    const selectAllHeader = document.getElementById('select-all-header');
+    if (selectAllHeader) selectAllHeader.checked = true;
+  };
+}
+if (deselectAllDownloadBtn) {
+  deselectAllDownloadBtn.onclick = function() {
+    document.querySelectorAll('#file-list .file-checkbox').forEach(checkbox => {
+      checkbox.checked = false;
+    });
+    const selectAllHeader = document.getElementById('select-all-header');
+    if (selectAllHeader) selectAllHeader.checked = false;
+  };
+}
+
 // 초기화
 window.onload = () => {
     connectWebSocket();
