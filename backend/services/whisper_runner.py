@@ -9,7 +9,7 @@ import json # JSON 로딩 추가 (main.py에서 이동 가능하나 일단 여�
 # Updated: 2025-05-04 (GitHub Copilot + Claude 3.7 지원)
 
 # ConnectionManager 임포트 (타입 힌팅 및 실제 사용)
-from connection_manager import ConnectionManager
+from backend.connection_manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
 

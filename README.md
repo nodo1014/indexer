@@ -1,46 +1,53 @@
-# NAS 미디어 자막 자동화 서버 (FastAPI + Whisper)
-
-## 개요
-- NAS 미디어 파일을 위한 웹 기반 자막 생성/관리 자동화 도구
-- FastAPI(Python) 백엔드 + HTML/JS 프론트엔드
-- 디렉토리 브라우징, 실시간 진행률, Whisper 기반 자막 생성, 외부 자막 다운로드, 싱크/품질 체크, 자막 미리보기/수정/삭제 등 지원
+# Whisper 자막 생성기 서버 (FastAPI)
 
 ## 주요 기능
-- 폴더/파일 탐색 및 필터링, 실시간 작업 현황
-- AI 자막 다운로드(외부/Whisper), 음성으로 자막 생성(Whisper)
-- 자막 싱크/품질 체크, 자동 보정, 자막 미리보기/수정/삭제
-- 내장 자막 추출/변환, 외부 자막 다운로드(OpenSubtitles)
-- **탭 UI**: "AI 자막 다운로드"/"음성으로 자막 생성" 탭, 디자인/높이/정렬 완전 통일, 고정 높이 적용
-- **JS 3분할 구조**: main.js(컨트롤러), websocket.js(실시간), render.js(화면 출력)
 
-## 설치 및 실행
-1. **Python 3.9+ 및 가상환경 권장**
+- NAS 저장소의 미디어 파일(영상/오디오)에서 자막이 없는 항목을 자동 탐색
+- Whisper로 자막 생성 및 관리 (언어/모델 선택 가능)
+- **작업 현황 패널**: 자막 생성 작업의 상태(진행중/일시정지/중단/완료 등)와 진행률을 실시간으로 확인/제어
+    - 새로고침/폴링에도 작업 현황이 사라지지 않음 (서버가 꺼지지 않는 한 유지)
+- **탐색기 트리**: 각 폴더별 (영상 #, 오디오 #) 개수를 하위폴더까지 모두 포함해 집계하여 표시
+- 자막 미리보기, 다운로드, 상세 진행 로그 모달 등 다양한 UI/UX 제공
+
+## 실행 환경 (whisper ai 사용시 중요!)
+- proxmox ubuntu22.04 server
+- ryzen 5600g 16g 512nvme
+- No graphic card ( pip install 시, pytorch no-cpu 반영)
+
+## 실행/설치 주의사항
+- **반드시 가상환경(venv) 활성화 후 pip install 진행**
+- **requirements.txt는 pip freeze로 최신화됨**
+- **그래픽카드가 없는 환경에서는 pytorch 설치 시 no-cuda 버전 사용 필수**
+  - 예시: `pip install torch==<버전>+cpu -f https://download.pytorch.org/whl/torch_stable.html`
+- FastAPI 실행 시 반드시 프로젝트 루트(즉, backend가 아닌 indexer 폴더)에서 아래 명령어로 실행
+  ```bash
+  uvicorn backend.main:app --reload
+  ```
+- **.env 파일에 NAS_MEDIA_PATH 등 환경변수 필수 설정**
+- **OPENSUBTITLES_API_KEY**: OpenSubtitles API를 사용하려면 `.env` 파일에 유효한 API 키를 설정하세요. 설정되지 않으면 모의(mock) 데이터를 반환합니다.
+
+## 실행 방법
+
+1. Python 3.10+ 및 가상환경(venv) 준비
 2. 의존성 설치
    ```bash
    pip install -r requirements.txt
    ```
-3. FastAPI 서버 실행
+3. .env 파일에 NAS_MEDIA_PATH 등 환경변수 설정
+4. FastAPI 서버 실행
    ```bash
    uvicorn backend.main:app --reload
    ```
-4. 웹브라우저에서 접속: [http://localhost:8000](http://localhost:8000)
+5. 웹 브라우저에서 `http://localhost:8000` 접속
 
-## 디렉토리 구조
-```
-backend/
-  main.py           # FastAPI 엔트리포인트
-  ...
-  static/
-    main.js         # JS 컨트롤러
-    websocket.js    # 실시간 통신
-    render.js       # 화면 렌더링
-    style.css       # 스타일 (탭 UI 포함)
-  templates/
-    index.html      # 메인 템플릿 (JS 분리)
-README.md
-PROGRESS.md
-```
+## 주요 화면/구성
 
-## 참고
-- Whisper, ffmpeg, pysrt 등 필요 패키지 별도 설치 필요
-- 상세 워크플로우/진행상황: PROGRESS.md 참고
+- **탐색기(좌측)**: 폴더 트리, (영상 #, 오디오 #) 표시, 자막 필터, 폴더 검색 버튼
+- **작업 현황(탐색기 아래)**: 현재/대기/완료된 자막 생성 작업, 상태/진행률/제어 버튼(일시정지/중단/재개/삭제)
+- **파일 목록(우측)**: 자막 없는 미디어 파일 리스트, 언어/모델/진행률/자막 미리보기 등
+
+## 변경 이력 (주요)
+
+- Whisper 작업 현황이 새로고침/폴링에도 사라지지 않도록 개선 (2024-05-04)
+- 탐색기 트리의 영상/오디오 개수가 하위폴더까지 포함해 집계되도록 개선 (2024-05-04)
+- 그 외 상세 내역은 PROGRESS.md 참고

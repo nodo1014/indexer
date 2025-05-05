@@ -1,247 +1,199 @@
-// main.js
-// 초기화 및 전체 컨트롤러
-// window.onload에서 각 기능 모듈을 불러와 초기화
-// 폴더 이동, 필터 적용, 체크박스 관리 등 사용자 입력 중심 코드 포함
-// ... (index.html에서 해당 부분만 추출 및 함수화)
+/**
+ * main.js - 메인 애플리케이션 초기화 및 통합
+ * 2025-05-05: 모듈화 리팩토링
+ */
 
-// 예시 구조
-import { connectWebSocket } from './websocket.js';
-import { renderJobList, renderCompletedFiles, renderMediaList } from './render.js';
-
-// 전역 변수 세팅 (템플릿에서 window에 할당 필요)
-window.clientId = window.clientId || (window.__CLIENT_ID__ || 'default');
-window.currentRelativePath = window.currentRelativePath || (window.__INITIAL_PATH__ || '');
-window.isProcessing = false;
-window.whisperLogs = {};
-window.completedFiles = [];
-
-// 폴더 트리 및 파일 목록 로드
-async function loadFileTree(relativePath) {
-    const dirList = document.getElementById('directory-list');
-    if (!dirList) return;
-    dirList.innerHTML = '<li>폴더 트리 로딩 중...</li>';
-    try {
-        const response = await fetch(`/browse?current_path=${encodeURIComponent(relativePath || '')}`);
-        const data = await response.json();
-        dirList.innerHTML = '';
-        if (data.parent_path && data.parent_path !== relativePath && relativePath !== '') {
-            const parentLi = document.createElement('li');
-            const parentLink = document.createElement('a');
-            parentLink.href = '#';
-            parentLink.className = 'parent-node';
-            parentLink.textContent = '.. (상위 폴더)';
-            parentLink.onclick = (e) => { e.preventDefault(); navigateTo(data.parent_path); };
-            parentLi.appendChild(parentLink);
-            dirList.appendChild(parentLi);
+// 앱 네임스페이스
+window.App = {
+    // 탭 인스턴스
+    tabs: {},
+    
+    // 초기화
+    init: function() {
+        console.log('애플리케이션 초기화...');
+        
+        // 웹소켓 및 필수 리소스 초기화
+        this.initializeResources();
+        
+        // 탭 초기화
+        this.initializeTabs();
+        
+        // 이벤트 핸들러 등록
+        this.registerEventHandlers();
+    },
+    
+    // 필수 리소스 초기화 (웹소켓 등)
+    initializeResources: function() {
+        // WebSocket이 있는 경우 초기화
+        if (!window.websocket) {
+            // connectWebSocket 함수가 있으면 호출
+            if (typeof connectWebSocket === 'function') {
+                connectWebSocket();
+            } else {
+                console.warn('WebSocket 연결 함수를 찾을 수 없습니다.');
+            }
         }
-        if (data.directories && data.directories.length > 0) {
-            data.directories.forEach(dir => {
-                const li = document.createElement('li');
-                const link = document.createElement('a');
-                link.href = '#';
-                link.textContent = `📁 ${dir.name}`;
-                link.onclick = (e) => { e.preventDefault(); navigateTo(dir.path); };
-                li.appendChild(link);
-                dirList.appendChild(li);
-            });
-        } else if (dirList.children.length === 0) {
-            dirList.innerHTML = '<li><span class="empty-node">하위 폴더가 없습니다</span></li>';
+    },
+    
+    // 탭 초기화
+    initializeTabs: function() {
+        try {
+            console.log('탭 초기화 시작...');
+            
+            // 모든 탭 클래스 인스턴스 생성
+            const tabClasses = {
+                'extract': window.ExtractTab,
+                'sync-ai': window.SyncTab,
+                'download': window.DownloadTab,
+                'whisper': window.WhisperTab
+            };
+            
+            // 각 탭 인스턴스 생성
+            for (const [tabId, TabClass] of Object.entries(tabClasses)) {
+                console.log(`${tabId} 탭 클래스 초기화 시도...`, TabClass);
+                
+                if (typeof TabClass === 'function') {
+                    console.log(`${tabId} 탭 인스턴스 생성`);
+                    this.tabs[tabId] = new TabClass();
+                    
+                    // 타입별 전역 변수 설정 - API 새로고침 기능 등을 위해
+                    if (tabId === 'download') {
+                        window.downloadTab = this.tabs[tabId];
+                    } else if (tabId === 'whisper') {
+                        window.whisperTab = this.tabs[tabId];
+                    } else if (tabId === 'extract') {
+                        window.extractTab = this.tabs[tabId];
+                    } else if (tabId === 'sync-ai') {
+                        window.syncTab = this.tabs[tabId];
+                    }
+                    
+                    // 초기화 메서드가 있으면 호출
+                    if (typeof this.tabs[tabId].init === 'function') {
+                        console.log(`${tabId} 탭 초기화 호출`);
+                        this.tabs[tabId].init();
+                    }
+                } else {
+                    console.warn(`탭 클래스를 찾을 수 없음: ${tabId}`, TabClass);
+                }
+            }
+            
+            // tabController 이벤트 리스너 등록
+            if (window.tabController) {
+                console.log('tabController에 이벤트 리스너 등록');
+                window.tabController.on('tabChanged', (data) => {
+                    this.onTabChanged(data.tab);
+                });
+                
+                // 현재 활성화된 탭에 onActivate 호출
+                const activeTab = window.tabController.getActiveTab();
+                if (activeTab && this.tabs[activeTab] && typeof this.tabs[activeTab].onActivate === 'function') {
+                    console.log(`초기 활성 탭 ${activeTab}에 onActivate 호출`);
+                    this.tabs[activeTab].onActivate();
+                }
+                
+                // WebSocket 메시지 처리자 등록 (필요 시)
+                if (typeof handleWebSocketMessage === 'function') {
+                    // 기존 함수 저장
+                    const originalHandler = handleWebSocketMessage;
+                    
+                    // 새로운 처리자로 오버라이드
+                    window.handleWebSocketMessage = function(message) {
+                        // 원래 처리 수행
+                        originalHandler(message);
+                        
+                        try {
+                            const data = JSON.parse(message);
+                            
+                            // 배치 완료 또는 취소 메시지 처리
+                            if (data.type === "batch_complete" || data.type === "batch_cancelled") {
+                                // Whisper 탭의 처리 상태 업데이트
+                                if (App.tabs.whisper) {
+                                    App.tabs.whisper.setProcessingComplete();
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('WebSocket 메시지 처리 중 오류:', e);
+                        }
+                    };
+                }
+            } else {
+                console.warn('tabController를 찾을 수 없어 탭 변경 이벤트를 등록할 수 없습니다.');
+            }
+        } catch (error) {
+            console.error('탭 초기화 중 오류 발생:', error);
         }
-    } catch (error) {
-        dirList.innerHTML = `<li>탐색기 로드 실패: ${error.message}</li>`;
-    }
-}
-
-async function loadFileList(relativePath) {
-    const fileListBody = document.getElementById('file-list');
-    if (fileListBody) fileListBody.innerHTML = '<tr><td colspan="8">파일 목록 로딩 중...</td></tr>';
-    const filterVideo = document.getElementById('filter-video').checked;
-    const filterAudio = document.getElementById('filter-audio').checked;
-    const subtitleFilter = document.getElementById('subtitle-filter').value;
-    try {
-        const response = await fetch(`/api/files?scan_path=${encodeURIComponent(relativePath || '')}&filter_video=${filterVideo}&filter_audio=${filterAudio}&subtitle_filter=${subtitleFilter}`);
-        const data = await response.json();
-        if (fileListBody) fileListBody.innerHTML = '';
-        if (data.files && data.files.length > 0) {
-            data.files.forEach(file => {
-                const row = document.createElement('tr');
-                row.dataset.path = file.path;
-                row.dataset.type = file.type;
-                row.innerHTML = `
-                    <td><input type="checkbox" class="file-checkbox" ${file.has_subtitle ? 'disabled' : ''}></td>
-                    <td class="status">대기</td>
-                    <td class="progress">-</td>
-                    <td class="filename">${file.name}</td>
-                    <td class="lang-code">${file.language || '-'}</td>
-                    <td class="subtitle-status">${file.has_subtitle ? 'O' : 'X'}</td>
-                    <td class="subtitle-preview">-</td>
-                    <td class="extract-embedded"><button class="extract-btn" title="내장 자막 추출">📝</button></td>
-                `;
-                fileListBody.appendChild(row);
-            });
+    },
+    
+    // 탭 변경 시 호출되는 이벤트 핸들러
+    onTabChanged: function(tabId) {
+        console.log(`탭 변경됨: ${tabId}`);
+        
+        // 해당 탭의 onActivate 메서드 호출
+        if (this.tabs[tabId] && typeof this.tabs[tabId].onActivate === 'function') {
+            this.tabs[tabId].onActivate();
         } else {
-            if (fileListBody) fileListBody.innerHTML = '<tr><td colspan="8">자막 없는 파일을 찾을 수 없습니다.</td></tr>';
+            console.warn(`${tabId} 탭에 onActivate 메서드가 없거나 탭 인스턴스를 찾을 수 없습니다.`);
         }
-    } catch (error) {
-        if (fileListBody) fileListBody.innerHTML = `<tr><td colspan="8">파일 목록 로드 중 오류: ${error.message}</td></tr>`;
-    }
-}
-
-// 폴더 이동 및 UI 갱신
-async function navigateTo(relativePath) {
-    window.currentRelativePath = relativePath || '';
-    const url = relativePath ? `/?scan_path=${encodeURIComponent(relativePath)}` : '/';
-    history.pushState({ path: relativePath }, '', url);
-    const pathDisplay = document.getElementById('current-path-display');
-    if (pathDisplay) pathDisplay.textContent = `현재 경로: /${relativePath || ''}`;
-    const fileListHeader = document.getElementById('file-list-header');
-    if (fileListHeader) fileListHeader.textContent = '미디어 파일 목록 (' + (relativePath ? '/' + relativePath : '루트') + ')';
-    await loadFileTree(relativePath);
-    const fileListBody = document.getElementById('file-list');
-    if (fileListBody) fileListBody.innerHTML = '<tr><td colspan="8">이 폴더의 미디어 파일을 검색하려면 "현재 폴더 검색" 버튼을 클릭하세요.</td></tr>';
-}
-window.navigateTo = navigateTo;
-
-// 현재 폴더 검색
-async function scanCurrentDirectory() {
-    document.getElementById('batch-status').textContent = '파일 검색 중...';
-    await loadFileList(window.currentRelativePath);
-}
-window.scanCurrentDirectory = scanCurrentDirectory;
-
-// 체크박스 전체 선택/해제
-function bindCheckboxEvents() {
-    const selectAllHeader = document.getElementById('select-all-header');
-    if (selectAllHeader) {
-        selectAllHeader.addEventListener('change', (event) => {
-            document.querySelectorAll('#file-list .file-checkbox').forEach(checkbox => {
-                if (!checkbox.disabled && checkbox.closest('tr').style.display !== 'none') {
-                    checkbox.checked = event.target.checked;
+    },
+    
+    // 글로벌 이벤트 핸들러 등록
+    registerEventHandlers: function() {
+        // 사이드바 토글 재연결 (필요한 경우)
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+        const sidebar = document.getElementById('directory-browser');
+        
+        if (sidebarToggle && sidebar) {
+            console.log('사이드바 토글 이벤트 등록');
+            sidebarToggle.onclick = function(e) {
+                e.stopPropagation();
+                sidebar.classList.toggle('open');
+                
+                // 오버레이 추가(모바일)
+                if (sidebar.classList.contains('open')) {
+                    let overlay = document.createElement('div');
+                    overlay.id = 'sidebar-overlay';
+                    overlay.style.position = 'fixed';
+                    overlay.style.top = '0';
+                    overlay.style.left = '0';
+                    overlay.style.width = '100vw';
+                    overlay.style.height = '100vh';
+                    overlay.style.background = 'rgba(0,0,0,0.08)';
+                    overlay.style.zIndex = '999';
+                    overlay.onclick = function() {
+                        sidebar.classList.remove('open');
+                        overlay.remove();
+                    };
+                    document.body.appendChild(overlay);
+                } else {
+                    const overlay = document.getElementById('sidebar-overlay');
+                    if (overlay) overlay.remove();
                 }
-            });
-        });
+            };
+        }
     }
-    const selectAllBtn = document.getElementById('select-all');
-    if (selectAllBtn) {
-        selectAllBtn.addEventListener('click', () => {
-            document.querySelectorAll('#file-list .file-checkbox').forEach(checkbox => {
-                if (!checkbox.disabled && checkbox.closest('tr').style.display !== 'none') {
-                    checkbox.checked = true;
-                }
-            });
-        });
-    }
-    const deselectAllBtn = document.getElementById('deselect-all');
-    if (deselectAllBtn) {
-        deselectAllBtn.addEventListener('click', () => {
-            document.querySelectorAll('#file-list .file-checkbox').forEach(checkbox => {
-                if (!checkbox.disabled && checkbox.closest('tr').style.display !== 'none') {
-                    checkbox.checked = false;
-                }
-            });
-        });
-    }
-}
+};
 
-// 필터/검색 이벤트 바인딩
-function bindFilterEvents() {
-    const subtitleFilter = document.getElementById('subtitle-filter');
-    if (subtitleFilter) {
-        subtitleFilter.addEventListener('change', () => {
-            scanCurrentDirectory();
-        });
-    }
-    const scanBtn = document.getElementById('scan-directory');
-    if (scanBtn) {
-        scanBtn.addEventListener('click', () => {
-            scanCurrentDirectory();
-        });
-    }
-}
-
-// 작업 현황 폴링
-async function fetchAndRenderJobs() {
-    try {
-        const res = await fetch('/api/jobs');
-        const data = await res.json();
-        if (data.jobs) {
-            renderJobList(data.jobs);
+// 문서 로드 완료 시 앱 초기화
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOMContentLoaded 이벤트 발생: 앱 초기화 시작');
+    
+    // 일정 시간 후 앱 초기화 (탭 컨트롤러가 먼저 초기화되도록 보장)
+    setTimeout(() => {
+        console.log('앱 초기화 타이머 실행');
+        if (window.tabController) {
+            console.log('tabController 존재: 앱 초기화 시작');
+            window.App.init();
+            
+            // URL에서 탭 정보 추출하여 해당 탭 활성화
+            const urlParams = new URLSearchParams(window.location.search);
+            const tabFromUrl = urlParams.get('tab');
+            
+            if (tabFromUrl && ['extract', 'download', 'sync-ai', 'whisper'].includes(tabFromUrl)) {
+                console.log(`URL에서 탭 감지: ${tabFromUrl}`);
+                window.tabController.activateTab(tabFromUrl);
+            }
         } else {
-            renderJobList([]);
+            console.warn('tabController가 초기화되지 않아 앱 초기화를 건너뜁니다.');
         }
-    } catch (e) {
-        renderJobList([]);
-    }
-}
-window.fetchAndRenderJobs = fetchAndRenderJobs;
-
-// AI 자막 다운로드 탭 이벤트
-const runDownloadBtn = document.getElementById('run-download');
-const downloadStatus = document.getElementById('download-status');
-const selectAllDownloadBtn = document.getElementById('select-all-download');
-const deselectAllDownloadBtn = document.getElementById('deselect-all-download');
-
-if (runDownloadBtn) {
-  runDownloadBtn.onclick = async function() {
-    // 체크된 파일 목록
-    const selectedFiles = [];
-    document.querySelectorAll('#file-list .file-checkbox:checked').forEach(checkbox => {
-      if (checkbox.closest('tr').style.display !== 'none') {
-        selectedFiles.push(checkbox.closest('tr').dataset.path);
-      }
-    });
-    if (selectedFiles.length === 0) {
-      downloadStatus.textContent = '자막을 다운로드할 파일을 하나 이상 선택하세요.';
-      return;
-    }
-    const lang = document.getElementById('download-lang').value;
-    downloadStatus.textContent = '서버에 AI 자막 다운로드 요청 중...';
-    runDownloadBtn.disabled = true;
-    try {
-      const response = await fetch('/api/auto_download_and_sync_subtitle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files: selectedFiles, language: lang })
-      });
-      const data = await response.json();
-      if (response.ok && data.success) {
-        downloadStatus.textContent = 'AI 자막 다운로드 요청이 접수되었습니다. 진행상태는 작업 현황에서 확인하세요.';
-      } else {
-        downloadStatus.textContent = '오류: ' + (data.error || data.detail || '알 수 없는 오류');
-      }
-    } catch (e) {
-      downloadStatus.textContent = '서버 연결 오류: ' + e.message;
-    }
-    runDownloadBtn.disabled = false;
-  };
-}
-if (selectAllDownloadBtn) {
-  selectAllDownloadBtn.onclick = function() {
-    document.querySelectorAll('#file-list .file-checkbox').forEach(checkbox => {
-      if (!checkbox.disabled && checkbox.closest('tr').style.display !== 'none') {
-        checkbox.checked = true;
-      }
-    });
-    const selectAllHeader = document.getElementById('select-all-header');
-    if (selectAllHeader) selectAllHeader.checked = true;
-  };
-}
-if (deselectAllDownloadBtn) {
-  deselectAllDownloadBtn.onclick = function() {
-    document.querySelectorAll('#file-list .file-checkbox').forEach(checkbox => {
-      checkbox.checked = false;
-    });
-    const selectAllHeader = document.getElementById('select-all-header');
-    if (selectAllHeader) selectAllHeader.checked = false;
-  };
-}
-
-// 초기화
-window.onload = () => {
-    connectWebSocket();
-    navigateTo(window.currentRelativePath);
-    fetchAndRenderJobs();
-    bindCheckboxEvents();
-    bindFilterEvents();
-    // 기타 초기화 및 이벤트 바인딩 추가 가능
-}; 
+    }, 300);
+});

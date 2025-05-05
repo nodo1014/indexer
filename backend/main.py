@@ -8,13 +8,20 @@ from fastapi.templating import Jinja2Templates
 import logging
 from pathlib import Path # Path 객체 사용
 import urllib.parse # URL 인코딩된 경로 디코딩
-from typing import List, Optional, Dict # Optional 추가
+from typing import List, Optional, Dict, Any, Union # Optional 추가
 import json
 import asyncio # 추가
+import time
+import shutil
 from backend.services.file_scanner import extract_embedded_subtitles, convert_and_save_subtitle
-from backend.services.subtitle_downloader import download_subtitle_from_opensubtitles, download_and_save_subtitle
+from backend.services.subtitle_downloader import download_subtitle_from_opensubtitles, download_and_save_subtitle, search_and_download_subtitle, load_download_stats, get_cache_key, check_subtitle_cache, MAX_DAILY_DOWNLOADS, OPENSUBTITLES_DEV_MODE, fallback_search_subtitle
 from backend.services.sync_checker import check_subtitle_sync, advanced_sync_and_save
 from fastapi import status
+from backend.config import settings
+from backend.connection_manager import ConnectionManager
+from backend.job_manager import job_manager
+from backend.services.file_scanner import scan_media_files, list_subdirectories, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, list_subdirectories_with_media_counts
+from backend.services.whisper_runner import run_whisper_batch
 
 # 현재 디렉토리를 가져와서 import 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,22 +30,6 @@ if current_dir not in sys.path:
 
 # 실행 위치에 따른 경로 설정
 is_running_from_root = os.path.basename(os.getcwd()) != 'backend'
-
-# 설정, 서비스 및 연결 관리자 로드
-try:
-    # 백엔드 디렉토리에서 직접 실행할 경우
-    from config import settings
-    from services.file_scanner import scan_media_files, list_subdirectories, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, list_subdirectories_with_media_counts
-    from services.whisper_runner import run_whisper_batch
-    from connection_manager import ConnectionManager
-    from job_manager import job_manager
-except ModuleNotFoundError:
-    # 프로젝트 루트에서 실행할 경우
-    from backend.config import settings
-    from backend.services.file_scanner import scan_media_files, list_subdirectories, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, list_subdirectories_with_media_counts
-    from backend.services.whisper_runner import run_whisper_batch
-    from backend.connection_manager import ConnectionManager
-    from backend.job_manager import job_manager
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -390,19 +381,71 @@ async def api_download_subtitle(request: Request):
     except Exception as e:
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
-@app.post("/api/check_subtitle_sync")
-async def api_check_subtitle_sync(request: Request):
+@app.post("/api/auto_download_and_sync_subtitle")
+async def api_auto_download_and_sync_subtitle(request: Request):
+    """
+    외부 자막 후보 중 best_match를 자동 다운로드 → 싱크 대조/보정/저장까지 자동화
+    """
     data = await request.json()
     media_path = data.get("media_path")
-    subtitle_path = data.get("subtitle_path")
-    sample_count = data.get("sample_count", 3)
-    if not media_path or not subtitle_path:
-        raise HTTPException(status_code=400, detail="media_path, subtitle_path 파라미터가 필요합니다.")
+    language = data.get("language", "ko")
+    
+    if not media_path:
+        raise HTTPException(status_code=400, detail="media_path 파라미터가 필요합니다.")
+    
     try:
-        result = check_subtitle_sync(media_path, subtitle_path, sample_count)
-        return JSONResponse(content=result)
+        # 파일 이름 추출
+        filename = os.path.basename(media_path)
+        logger.info(f"자동 자막 다운로드 및 동기화 요청: {filename}, 언어: {language}")
+        
+        # 1단계: 자막 다운로드
+        download_result = download_subtitle_from_opensubtitles(filename, language)
+        
+        if not download_result.get("success") or not download_result.get("subtitle_path"):
+            return JSONResponse(content={
+                "success": False, 
+                "error": "적합한 자막을 찾을 수 없습니다."
+            })
+        
+        subtitle_path = download_result.get("subtitle_path")
+        
+        # 2단계: 자막 싱크 확인 및 조정
+        sync_result = check_subtitle_sync(media_path, subtitle_path)
+        
+        # 싱크가 좋지 않은 경우 보정 시도
+        if not sync_result.get("in_sync", False) and sync_result.get("score", 0) < 0.7:
+            logger.info(f"자막 싱크가 좋지 않음 (점수: {sync_result.get('score')}), 보정 시도 중...")
+            
+            # 고급 싱크 조정 및 저장
+            advanced_result = advanced_sync_and_save(
+                media_path, 
+                subtitle_path, 
+                avg_offset=sync_result.get("avg_offset", 0)
+            )
+            
+            final_subtitle_path = advanced_result.get("output_path", subtitle_path)
+            sync_applied = True
+        else:
+            # 싱크가 좋은 경우 원본 사용
+            final_subtitle_path = subtitle_path
+            sync_applied = False
+        
+        # 결과 반환
+        return JSONResponse(content={
+            "success": True,
+            "final_subtitle_path": final_subtitle_path,
+            "sync": sync_result.get("in_sync", False) or sync_applied,
+            "score": sync_result.get("score", 0),
+            "avg_offset": sync_result.get("avg_offset", 0),
+            "sync_result": sync_result
+        })
+        
     except Exception as e:
-        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+        logger.error(f"자동 자막 다운로드 및 동기화 중 오류: {e}", exc_info=True)
+        return JSONResponse(content={
+            "success": False, 
+            "error": f"자동 자막 처리 중 오류 발생: {str(e)}"
+        }, status_code=500)
 
 @app.get("/api/preview_subtitle")
 def preview_subtitle(file_path: str = Query(..., description="자막 파일 경로"), max_lines: int = 200):
@@ -477,54 +520,168 @@ async def api_download_and_save_subtitle(request: Request):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@app.post("/api/auto_download_and_sync_subtitle")
-async def api_auto_download_and_sync_subtitle(request: Request):
+@app.get("/api/list_directory", response_class=JSONResponse)
+async def list_directory(path: Optional[str] = Query("")):
+    """디렉토리 탐색기를 위한 endpoint - 지정된 경로의 디렉토리와 파일 목록을 반환합니다."""
+    current_scan_path = NAS_BASE_PATH
+    if path:
+        resolved_path = (NAS_BASE_PATH / path).resolve()
+        if is_safe_path(resolved_path) and resolved_path.is_dir():
+            current_scan_path = resolved_path
+        else:
+            logger.warning(f"디렉토리 목록 요청: 안전하지 않거나 존재하지 않는 경로 - {path}")
+            # 안전하지 않거나 없는 경로면 빈 목록 반환 또는 오류
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": "유효하지 않은 경로입니다."}
+            )
+
+    logger.info(f"API 디렉토리 목록 요청: {current_scan_path}")
+    try:
+        # 디렉토리 목록 가져오기
+        subdirs_paths = list_subdirectories(str(current_scan_path))
+        # 디렉토리 경로를 딕셔너리 형식으로 변환
+        directories = []
+        for dir_path in subdirs_paths:
+            path_obj = Path(dir_path)
+            try:
+                directories.append({
+                    "name": path_obj.name,
+                    "path": str(path_obj.relative_to(NAS_BASE_PATH)) if path_obj != NAS_BASE_PATH else ""
+                })
+            except ValueError:
+                logger.warning(f"상대 경로 계산 실패: {dir_path}")
+        
+        # 파일 목록 가져오기 (필요한 경우)
+        files = scan_media_files(str(current_scan_path), True, True)
+        
+        return {
+            "directories": directories,
+            "files": files,
+            "current_path": str(current_scan_path.relative_to(NAS_BASE_PATH)) if current_scan_path != NAS_BASE_PATH else ""
+        }
+    except Exception as e:
+        logger.error(f"API 디렉토리 목록 검색 중 오류 ({path}): {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": f"디렉토리 목록을 가져오는 데 실패했습니다: {str(e)}"}
+        )
+
+@app.get("/api/scan_directory", response_class=JSONResponse)
+async def scan_directory(path: Optional[str] = Query("")):
+    """현재 디렉토리의 미디어 파일을 모두 스캔하여 반환합니다."""
+    current_scan_path = NAS_BASE_PATH
+    if path:
+        resolved_path = (NAS_BASE_PATH / path).resolve()
+        if is_safe_path(resolved_path) and resolved_path.is_dir():
+            current_scan_path = resolved_path
+        else:
+            logger.warning(f"디렉토리 스캔 요청: 안전하지 않거나 존재하지 않는 경로 - {path}")
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": "유효하지 않은 경로입니다."}
+            )
+    
+    logger.info(f"API 디렉토리 스캔 요청: {current_scan_path}")
+    try:
+        # 모든 미디어 파일 스캔 (비디오 + 오디오)
+        files = scan_media_files(str(current_scan_path), True, True)
+        
+        return {
+            "files": files,
+            "current_path": str(current_scan_path.relative_to(NAS_BASE_PATH)) if current_scan_path != NAS_BASE_PATH else ""
+        }
+    except Exception as e:
+        logger.error(f"API 디렉토리 스캔 중 오류 ({path}): {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": f"디렉토리 스캔에 실패했습니다: {str(e)}"}
+        )
+
+@app.get("/api/opensubtitles/status", response_class=JSONResponse)
+async def api_opensubtitles_status():
     """
-    외부 자막 후보 중 best_match를 자동 다운로드 → 싱크 대조/보정/저장까지 자동화
+    OpenSubtitles API의 상태(일일 사용량 등)를 확인합니다.
+    """
+    download_stats = load_download_stats()
+    
+    # 오늘 날짜 확인
+    today = time.strftime('%Y-%m-%d')
+    if download_stats.get('today') != today:
+        download_stats['today'] = today
+        download_stats['daily_downloads'] = 0
+    
+    # 캐시된 자막 수 계산
+    cached_subtitles_count = len(download_stats.get('cached_subtitles', {}))
+    
+    return {
+        "success": True,
+        "daily_downloads": download_stats.get('daily_downloads', 0),
+        "daily_limit": MAX_DAILY_DOWNLOADS,
+        "remaining": MAX_DAILY_DOWNLOADS - download_stats.get('daily_downloads', 0),
+        "total_downloads": download_stats.get('total_downloads', 0),
+        "cached_subtitles_count": cached_subtitles_count,
+        "dev_mode": OPENSUBTITLES_DEV_MODE,
+        "api_key_set": bool(settings.opensubtitles_api_key)
+    }
+
+@app.post("/api/multilingual_subtitle_search")
+async def api_multilingual_subtitle_search(request: Request):
+    """
+    여러 언어로 자막을 순차적으로 검색하는 기능을 제공합니다.
+    한국어 자막을 찾지 못할 경우 영어나 다른 언어로 시도합니다.
     """
     data = await request.json()
     media_path = data.get("media_path")
-    language = data.get("language", "en")  # 기본값 en
+    languages = data.get("languages", ["ko", "en"])  # 기본값: 한국어, 영어 순서로 시도
+    min_similarity = data.get("min_similarity", 50.0)  # 기본 최소 유사도를 50%로 낮춤
+    
     if not media_path:
         raise HTTPException(status_code=400, detail="media_path 파라미터가 필요합니다.")
+    
     try:
-        # 1. 후보 리스트/best_match 획득
-        filename = os.path.basename(media_path)
-        result = download_subtitle_from_opensubtitles(filename, language)
-        candidates = result.get('candidates', [])
-        best_match = result.get('best_match')
-        if not best_match or not best_match.get('download_url'):
-            return {"success": False, "error": "일치하는 자막 후보가 없습니다.", "candidates": candidates}
-        # 2. 자막 다운로드 경로 결정
-        save_dir = os.path.dirname(media_path)
-        save_name = best_match['filename']
-        save_path = os.path.join(save_dir, save_name)
-        # 3. 경로 보안 체크
-        target_path = Path(save_path).resolve()
+        # 파일 경로 유효성 검사
+        target_path = Path(media_path).resolve()
         if not is_safe_path(target_path):
-            return {"success": False, "error": "허용되지 않은 경로입니다.", "save_path": str(target_path)}
-        # 4. 자막 다운로드
-        dl_result = download_and_save_subtitle(best_match['download_url'], str(target_path))
-        if not dl_result.get('success'):
-            return {"success": False, "error": "자막 다운로드 실패: " + dl_result.get('error', ''), "candidates": candidates, "best_match": best_match}
-        # 5. 싱크 대조/보정/저장 (advanced)
-        sync_result = advanced_sync_and_save(media_path, str(target_path))
-        # 6. 결과 반환
-        return {
-            "success": sync_result.get('success', False),
-            "candidates": candidates,
-            "best_match": best_match,
-            "downloaded_path": str(target_path),
-            "sync_result": sync_result,
-            "final_subtitle_path": sync_result.get('save_path'),
-            "sync": sync_result.get('sync'),
-            "score": sync_result.get('score'),
-            "avg_offset": sync_result.get('avg_offset'),
-            "details": sync_result.get('details'),
-            "error": sync_result.get('error')
-        }
+            return JSONResponse(content={"success": False, "error": "허용되지 않은 경로입니다."}, status_code=403)
+        
+        if not target_path.is_file():
+            return JSONResponse(content={"success": False, "error": "파일이 존재하지 않습니다."}, status_code=404)
+        
+        # 파일 이름 추출
+        filename = target_path.name
+        logger.info(f"다국어 자막 검색 요청: {filename}, 언어 우선순위: {languages}")
+        
+        # 자막 파일 경로 생성 (원본 미디어와 같은 디렉토리에 동일한 이름.srt)
+        save_path = str(target_path.with_suffix('.srt'))
+        
+        # 다국어 자막 검색 실행
+        result = fallback_search_subtitle(filename, save_path, languages, min_similarity)
+        
+        if result.get('success'):
+            logger.info(f"다국어 자막 검색 성공: {result.get('language', '알 수 없음')} 언어로 찾음")
+            # 성공 정보에 필요한 추가 데이터 첨부
+            result['media_path'] = str(media_path)
+            result['subtitle_path'] = save_path
+            
+            # 자막 싱크 체크 시도
+            try:
+                sync_result = check_subtitle_sync(str(target_path), save_path)
+                result['sync_info'] = sync_result
+            except Exception as sync_err:
+                logger.warning(f"자막 싱크 체크 실패: {str(sync_err)}")
+                result['sync_info'] = {"error": str(sync_err)}
+        else:
+            logger.warning(f"다국어 자막 검색 실패: {result.get('error', '알 수 없는 오류')}")
+        
+        return JSONResponse(content=result)
+        
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        logger.error(f"다국어 자막 검색 중 오류: {e}", exc_info=True)
+        return JSONResponse(content={
+            "success": False, 
+            "error": f"자막 검색 중 오류 발생: {str(e)}"
+        }, status_code=500)
 
 # TODO: 완료된 파일 목록 제공 및 다운로드 기능 구현
 
@@ -539,4 +696,4 @@ if __name__ == "__main__":
     if NAS_BASE_PATH.is_dir():
         uvicorn.run(app, host="0.0.0.0", port=8001)
     else:
-        logger.critical(f"NAS 기본 경로 '{NAS_BASE_PATH}' 가 유효하지 않아 서버를 시작할 수 없습니다. .env 파일을 확인하세요.") 
+        logger.critical(f"NAS 기본 경로 '{NAS_BASE_PATH}' 가 유효하지 않아 서버를 시작할 수 없습니다. .env 파일을 확인하세요.")
