@@ -14,6 +14,7 @@
    - [자막 추출 및 변환](#자막-추출-및-변환)
    - [자막 싱크 검증 및 자동 보정 시스템](#자막-싱크-검증-및-자동-보정-시스템)
    - [AI 기반 자막 자동화 시스템](#ai-기반-자막-자동화-시스템)
+   - [SvelteKit 프론트엔드 마이그레이션](#sveltekit-프론트엔드-마이그레이션)
 6. [자막 싱크 검증 및 보정 시스템](#자막-싱크-검증-및-보정-시스템)
 7. [AI 기반 자막 자동 다운로드 시스템](#ai-기반-자막-자동-다운로드-시스템)
 8. [날짜별 작업 이력](#-날짜별-작업-이력)
@@ -481,25 +482,94 @@ NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로
    - 자막 품질 자동 개선 (맞춤법, 포맷팅 등)
    - 관련 파일: backend/services/whisper_runner.py, backend/services/sync_checker.py
 
+## SvelteKit 프론트엔드 마이그레이션
+
+### 도입 배경 및 목표
+
+기존 FastAPI의 Jinja2 템플릿과 바닐라 JS로 구현된 프론트엔드를 SvelteKit 기반의 현대적인 프론트엔드로 마이그레이션하여 다음과 같은 이점을 얻고자 합니다:
+
+1. **코드 유지보수성 향상**
+   - 컴포넌트 기반 아키텍처로 코드 재사용성 증가
+   - TypeScript를 통한 타입 안전성 확보
+   - 자동 코드 분할 및 최적화
+
+2. **사용자 경험 개선**
+   - 클라이언트 사이드 라우팅으로 빠른 페이지 전환
+   - 서버 사이드 렌더링(SSR)으로 초기 로딩 시간 단축
+   - 상태 관리 시스템으로 더 일관된 UI 상태 유지
+
+3. **개발 생산성 향상**
+   - Hot Module Replacement로 빠른 개발 피드백
+   - Svelte의 간결한 문법으로 보일러플레이트 코드 감소
+   - API 요청 및 상태 관리 추상화
+
+### 마이그레이션 계획
+
+1. **[완료] 초기 SvelteKit 프로젝트 설정**
+   - SvelteKit 프로젝트 생성 (`npx sv create .`)
+   - TypeScript 설정 및 기본 폴더 구조 확인
+   - 관련 파일: frontend/package.json, frontend/svelte.config.js
+
+2. **[진행 중] API 연동 레이어 구현**
+   - FastAPI 백엔드와 통신할 API 클라이언트 구현
+   - WebSocket 연결 관리 모듈 개발
+   - 백엔드 API 엔드포인트 타입 정의
+   - 관련 파일: frontend/src/lib/api/index.ts, frontend/src/lib/api/websocket.ts
+
+3. **[ ] 공통 UI 컴포넌트 개발**
+   - 탐색기 트리 컴포넌트 구현
+   - 작업 현황 패널 컴포넌트 구현
+   - 파일 목록 테이블 컴포넌트 구현
+   - 모달 및 알림 컴포넌트 구현
+   - 관련 파일: frontend/src/lib/components/
+
+4. **[ ] 페이지 및 라우팅 구현**
+   - 메인 레이아웃 구현
+   - 탭 기반 인터페이스 구현
+   - 각 기능별 페이지 라우팅 설정
+   - 관련 파일: frontend/src/routes/
+
+5. **[ ] 상태 관리 구현**
+   - 디렉토리 상태 관리
+   - 작업 큐 및 진행 상태 관리
+   - 사용자 설정 및 환경 설정 관리
+   - 관련 파일: frontend/src/lib/stores/
+
+6. **[ ] 테스트 및 최적화**
+   - 단위 테스트 구현
+   - 성능 최적화 및 번들 크기 분석
+   - 접근성 및 반응형 디자인 검증
+   - 관련 파일: frontend/src/tests/
+
+7. **[ ] 기존 코드에서 데이터 마이그레이션**
+   - 기존 JavaScript 코드 로직 분석 및 이전
+   - 백엔드 API 호출 코드 수정
+   - 프론트엔드 렌더링 로직 이전
+   - 관련 파일: backend/static/, frontend/src/lib/
+
+8. **[ ] 배포 및 통합**
+   - FastAPI 백엔드와 SvelteKit 프론트엔드 통합 배포
+   - 정적 파일 서빙 설정
+   - CORS 및 프록시 설정
+   - 관련 파일: frontend/svelte.config.js, backend/main.py
+
+### 기술 스택
+
+- **프론트엔드**: SvelteKit, TypeScript, Vite
+- **백엔드**: FastAPI (기존 유지)
+- **통신**: REST API, WebSocket
+- **스타일링**: CSS 또는 TailwindCSS 검토 중
+
 ## 📅 날짜별 작업 이력
 
-### 2024-05-04
+### 2024-05-05
 
-- **Whisper 작업 현황 유지 개선**
-  - /run-whisper에서 Whisper 작업 실행 시 각 파일마다 job_manager.add_job을 호출하여, 새로고침/폴링에도 작업 현황이 사라지지 않도록 개선 (main.py, job_manager.py)
-- **탐색기 트리 미디어 개수 집계 개선**
-  - 폴더별 영상/오디오 개수를 하위폴더까지 모두 포함해 재귀적으로 집계하도록 개선 (file_scanner.py)
-- **파일 검색 결과 요약 상세 표시**
-  - 검색 후 batch-status 영역에 총 파일 수, 영상/오디오 개수, 자막 없는/있는 파일 수 등 상세 요약 표시 (index.html, file_scanner.py)
-  - scanCurrentDirectory에서 '파일 검색 완료' 메시지 제거로 상세 요약이 유지됨 (index.html)
-- **탐색기(디렉토리 브라우저) 영역 리팩토링**
-  - id/class 네이밍 일관성, 한글 주석, null 체크, 폴더명 옆 (영상 #, 오디오 #) 표시 안정화 (index.html)
-- **표 간격 및 컬럼별 너비 조정**
-  - 상태/언어 컬럼 최소 너비, 자막 미리보기 컬럼 넓게, CSS 인라인 적용 (index.html)
-- **상태/자막 미리보기 클릭 시 모달창 표시**
-  - 상태 클릭: 상세 작업 상황 모달, 자막 미리보기 클릭: 전체 자막 모달(스크롤 가능) (index.html)
-- **백엔드 파일 목록 응답에 has_subtitle 필드 추가**
-  - 프론트 통계 계산 정상화 (file_scanner.py)
+- **SvelteKit 프론트엔드 마이그레이션 시작**
+  - 기존 코드베이스 git 저장소에 commit 및 push
+  - SvelteKit 프로젝트 초기 설정 (`npx sv create .`)
+  - TypeScript 설정 및 기본 폴더 구조 생성
+  - PROGRESS.md에 SvelteKit 마이그레이션 계획 추가
+  - 관련 파일: frontend/package.json, frontend/svelte.config.js, PROGRESS.md
 
 ### 2024-06-13
 
