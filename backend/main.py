@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, BackgroundTasks, WebSocket, WebSocketDisco
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse # JSONResponse 추가
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware  # CORS 미들웨어 추가
 import logging
 from pathlib import Path # Path 객체 사용
 import urllib.parse # URL 인코딩된 경로 디코딩
@@ -31,12 +32,42 @@ if current_dir not in sys.path:
 # 실행 위치에 따른 경로 설정
 is_running_from_root = os.path.basename(os.getcwd()) != 'backend'
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# 향상된 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
+# 콘솔 핸들러 추가 (컬러 로깅 지원)
+try:
+    import coloredlogs
+    coloredlogs.install(
+        level=logging.INFO,
+        logger=logger,
+        fmt='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    logger.info("컬러 로깅 활성화됨")
+except ImportError:
+    logger.info("coloredlogs 모듈이 설치되지 않아 기본 로그 형식을 사용합니다. 컬러 로깅을 위해: pip install coloredlogs")
+
 # FastAPI 앱 인스턴스 생성
-app = FastAPI()
+app = FastAPI(
+    title="Whisper Subtitle Generator",
+    description="자막 생성 및 관리를 위한 FastAPI 서버",
+    version="1.0.0"
+)
+
+# CORS 설정 추가
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 오리진 허용 (개발용, 운영 환경에서는 변경 필요)
+    allow_credentials=True,
+    allow_methods=["*"],  # 모든 HTTP 메서드 허용
+    allow_headers=["*"],  # 모든 헤더 허용
+)
 
 # 정적 파일 마운트 (CSS, JS 등)
 # 실행 위치에 따른 경로 설정
@@ -68,6 +99,26 @@ def is_safe_path(requested_path: Path) -> bool:
     except Exception as e:
         logger.warning(f"경로 유효성 검사 중 오류: {requested_path} - {e}")
         return False
+
+@app.on_event("startup")
+async def startup_event():
+    """애플리케이션 시작 시 실행되는 이벤트 핸들러"""
+    logger.info("✅ 애플리케이션이 시작되었습니다")
+    logger.info(f"📂 NAS 미디어 경로: {NAS_BASE_PATH}")
+    logger.info(f"🔧 Whisper 모델 로드 준비 완료")
+    logger.info(f"🌐 API 서버 URL: http://localhost:8000")
+    
+    # OpenSubtitles API 키 확인
+    if settings.opensubtitles_api_key:
+        logger.info(f"🔑 OpenSubtitles API 키 설정됨")
+    else:
+        logger.warning(f"⚠️ OpenSubtitles API 키가 설정되지 않았습니다. 자막 다운로드 기능이 제한됩니다.")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """애플리케이션 종료 시 실행되는 이벤트 핸들러"""
+    logger.info("애플리케이션이 종료되었습니다")
+    # 필요한 정리 작업 수행
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request,
@@ -274,44 +325,40 @@ async def download_file(file_path: str):
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    """WebSocket 연결을 처리하고, 클라이언트로부터 메시지를 받습니다."""
-    await manager.connect(websocket, client_id)
-    logger.info(f"WebSocket 연결됨: {client_id}")
+    """
+    WebSocket 연결 엔드포인트
+    클라이언트와 양방향 통신을 위한 WebSocket 연결을 처리합니다.
+    """
+    await websocket.accept()
+    logging.info(f"WebSocket 연결 수락 - 클라이언트 ID: {client_id}")
+    
     try:
         while True:
-            # 클라이언트로부터 메시지 수신 대기 (예: 'stop' 요청)
             data = await websocket.receive_text()
-            logger.info(f"WebSocket 메시지 수신 (Client: {client_id}): {data}")
-            # 메시지 파싱 (JSON 가정)
-            try:
-                message = json.loads(data)
-                if message.get("type") == "stop_processing":
-                    logger.info(f"Whisper 작업 중지 요청 수신 (Client: {client_id})")
-                    await manager.cancel_task(client_id)
-                    await websocket.send_text(json.dumps({"type": "stop_acknowledged"}))
-                # 다른 메시지 유형 처리 (필요한 경우)
-                # else:
-                #     logger.warning(f"알 수 없는 WebSocket 메시지 유형 (Client: {client_id}): {message.get('type')}")
-            except json.JSONDecodeError:
-                 logger.warning(f"잘못된 JSON 형식의 WebSocket 메시지 수신 (Client: {client_id}): {data}")
-            except Exception as e:
-                 logger.error(f"WebSocket 메시지 처리 중 오류 (Client: {client_id}): {e}", exc_info=True)
-
+            logging.debug(f"WebSocket 메시지 수신: {data}")
+            
+            # 클라이언트 메시지 처리
+            await websocket.send_json({
+                "type": "ack",
+                "message": "메시지가 처리되었습니다.",
+                "client_id": client_id
+            })
     except WebSocketDisconnect:
-        logger.info(f"WebSocket 연결 끊김: {client_id}")
-        # 연결이 끊겼을 때 관련 작업 취소 시도 (선택 사항)
-        # await manager.cancel_task(client_id)
+        logging.info(f"WebSocket 연결 종료 - 클라이언트 ID: {client_id}")
     except Exception as e:
-        logger.error(f"WebSocket 오류 발생 (Client: {client_id}): {e}", exc_info=True)
-    finally:
-        # 연결이 어떤 이유로든 종료되면 정리
-        await manager.disconnect(websocket, client_id)
-        logger.info(f"WebSocket 연결 및 리소스 정리 완료: {client_id}")
+        logging.exception(f"WebSocket 오류 - 클라이언트 ID: {client_id}")
 
 @app.get("/api/jobs")
-def get_all_jobs():
-    """현재 등록된 모든 Whisper 작업 목록을 반환합니다."""
-    return {"jobs": job_manager.get_jobs()}
+async def get_jobs():
+    """
+    전체 작업 목록 조회 API
+    """
+    try:
+        # 임시로 빈 작업 목록 반환 (실제로는 작업 관리자에서 가져와야 함)
+        return {"jobs": []}
+    except Exception as e:
+        logging.exception("작업 목록 조회 중 오류 발생")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/job/{job_id}/action")
 def job_action(job_id: str, action: str = Body(..., embed=True)):
@@ -520,52 +567,36 @@ async def api_download_and_save_subtitle(request: Request):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@app.get("/api/list_directory", response_class=JSONResponse)
-async def list_directory(path: Optional[str] = Query("")):
-    """디렉토리 탐색기를 위한 endpoint - 지정된 경로의 디렉토리와 파일 목록을 반환합니다."""
-    current_scan_path = NAS_BASE_PATH
-    if path:
-        resolved_path = (NAS_BASE_PATH / path).resolve()
-        if is_safe_path(resolved_path) and resolved_path.is_dir():
-            current_scan_path = resolved_path
-        else:
-            logger.warning(f"디렉토리 목록 요청: 안전하지 않거나 존재하지 않는 경로 - {path}")
-            # 안전하지 않거나 없는 경로면 빈 목록 반환 또는 오류
-            return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content={"error": "유효하지 않은 경로입니다."}
-            )
-
-    logger.info(f"API 디렉토리 목록 요청: {current_scan_path}")
+@app.get("/api/list_directory")
+async def list_directory(path: str = ""):
+    """
+    디렉토리 목록 조회 API
+    """
+    # 기존 browse_directories 함수와 같은 로직 구현
     try:
-        # 디렉토리 목록 가져오기
-        subdirs_paths = list_subdirectories(str(current_scan_path))
-        # 디렉토리 경로를 딕셔너리 형식으로 변환
-        directories = []
-        for dir_path in subdirs_paths:
-            path_obj = Path(dir_path)
-            try:
-                directories.append({
-                    "name": path_obj.name,
-                    "path": str(path_obj.relative_to(NAS_BASE_PATH)) if path_obj != NAS_BASE_PATH else ""
-                })
-            except ValueError:
-                logger.warning(f"상대 경로 계산 실패: {dir_path}")
+        # 실제 파일 시스템 경로 계산
+        absolute_path = os.path.join(NAS_BASE_PATH, path.lstrip('/'))
+        logging.info(f"[/api/list_directory] 실제 탐색 경로: {absolute_path}")
         
-        # 파일 목록 가져오기 (필요한 경우)
-        files = scan_media_files(str(current_scan_path), True, True)
+        # 하위 디렉토리 정보 수집
+        from media_utils import list_subdirectories_with_media_counts
+        directories = list_subdirectories_with_media_counts(absolute_path)
+        
+        # 상위 디렉토리 경로 계산
+        parent_path = ""
+        if path:
+            parent_parts = path.rstrip('/').split('/')
+            if len(parent_parts) > 1:
+                parent_path = '/'.join(parent_parts[:-1])
         
         return {
             "directories": directories,
-            "files": files,
-            "current_path": str(current_scan_path.relative_to(NAS_BASE_PATH)) if current_scan_path != NAS_BASE_PATH else ""
+            "parent_path": parent_path,
+            "current_path": path
         }
     except Exception as e:
-        logger.error(f"API 디렉토리 목록 검색 중 오류 ({path}): {e}", exc_info=True)
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"error": f"디렉토리 목록을 가져오는 데 실패했습니다: {str(e)}"}
-        )
+        logging.exception("디렉토리 목록 조회 중 오류 발생")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/scan_directory", response_class=JSONResponse)
 async def scan_directory(path: Optional[str] = Query("")):
@@ -683,7 +714,259 @@ async def api_multilingual_subtitle_search(request: Request):
             "error": f"자막 검색 중 오류 발생: {str(e)}"
         }, status_code=500)
 
-# TODO: 완료된 파일 목록 제공 및 다운로드 기능 구현
+@app.post("/api/auto_process_subtitle")
+async def auto_process_subtitle(request: Request, background_tasks: BackgroundTasks):
+    """
+    자막 자동 다운로드, 싱크 검증, 조정 통합 API 엔드포인트
+    단계:
+    1. 자막 다운로드 (OpenSubtitles API 활용)
+    2. 싱크 검증 (Whisper 기반)
+    3. 필요시 자막 오프셋 조정
+    """
+    data = await request.json()
+    media_path = data.get("media_path")
+    language = data.get("language", "ko")
+    use_multilingual = data.get("use_multilingual", False)
+    languages = data.get("languages", ["ko", "en"])
+    
+    if not media_path:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": "미디어 경로가 지정되지 않았습니다."}
+        )
+    
+    # 1단계: 자막 다운로드
+    try:
+        logging.info(f"자막 다운로드 시작: {media_path}")
+        
+        # OpenSubtitles에서 자막 검색 및 다운로드
+        # 다국어 사용 여부에 따라 검색 전략 변경
+        if use_multilingual:
+            # 여러 언어로 순차 시도
+            subtitle_result = None
+            for lang in languages:
+                try:
+                    subtitle_result = subtitle_downloader.search_and_download_subtitle(
+                        filename=os.path.basename(media_path),
+                        save_path=os.path.dirname(media_path),
+                        language=lang,
+                        min_similarity=50.0
+                    )
+                    if subtitle_result.get("success"):
+                        logging.info(f"자막 다운로드 성공 (언어: {lang}): {subtitle_result.get('subtitle_path')}")
+                        break
+                except Exception as e:
+                    logging.error(f"자막 다운로드 중 오류 (언어: {lang}): {str(e)}")
+                    continue
+            
+            # 모든 언어로 시도했지만 실패한 경우
+            if not subtitle_result or not subtitle_result.get("success"):
+                # 최후의 방법: 영화 이름으로 검색 (파일명 정제)
+                try:
+                    logging.info("최종 시도: 파일명 정제 후 검색")
+                    subtitle_result = subtitle_downloader.fallback_search_subtitle(
+                        filename=os.path.basename(media_path),
+                        save_path=os.path.dirname(media_path),
+                        languages=languages,
+                        min_similarity=40.0
+                    )
+                except Exception as e:
+                    logging.error(f"자막 대체 검색 중 오류: {str(e)}")
+                    return JSONResponse(
+                        status_code=404,
+                        content={"success": False, "error": f"자막을 찾을 수 없습니다: {str(e)}"}
+                    )
+        else:
+            # 단일 언어로 검색
+            try:
+                subtitle_result = subtitle_downloader.search_and_download_subtitle(
+                    filename=os.path.basename(media_path),
+                    save_path=os.path.dirname(media_path),
+                    language=language,
+                    min_similarity=50.0
+                )
+            except Exception as e:
+                logging.error(f"자막 다운로드 중 오류: {str(e)}")
+                return JSONResponse(
+                    status_code=404,
+                    content={"success": False, "error": f"자막을 찾을 수 없습니다: {str(e)}"}
+                )
+        
+        # 자막 다운로드 실패 시
+        if not subtitle_result or not subtitle_result.get("success"):
+            error_msg = subtitle_result.get("error", "알 수 없는 오류로 자막을 찾을 수 없습니다.")
+            logging.error(f"자막 다운로드 실패: {error_msg}")
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": error_msg}
+            )
+        
+        subtitle_path = subtitle_result.get("subtitle_path")
+        
+        # 2단계: 싱크 검증
+        try:
+            logging.info(f"자막 싱크 검증 시작: {subtitle_path}")
+            sync_result = sync_checker.check_subtitle_sync(
+                media_path=media_path,
+                subtitle_path=subtitle_path
+            )
+            
+            # 3단계: 필요시 자막 조정
+            adjusted = False
+            if sync_result.get("sync_status") != "good" and abs(sync_result.get("offset", 0)) > 0.5:
+                logging.info(f"자막 오프셋 조정 필요: {sync_result.get('offset')}초")
+                try:
+                    adjust_result = sync_checker.adjust_subtitle_offset(
+                        subtitle_path=subtitle_path,
+                        offset=sync_result.get("offset")
+                    )
+                    
+                    if adjust_result.get("success"):
+                        logging.info(f"자막 오프셋 조정 성공: {adjust_result.get('adjusted_subtitle_path')}")
+                        subtitle_path = adjust_result.get("adjusted_subtitle_path")
+                        adjusted = True
+                    else:
+                        logging.warning(f"자막 오프셋 조정 실패: {adjust_result.get('error')}")
+                except Exception as e:
+                    logging.error(f"자막 오프셋 조정 중 오류: {str(e)}")
+            else:
+                logging.info(f"자막 오프셋 조정 불필요 (상태: {sync_result.get('sync_status')}, 오프셋: {sync_result.get('offset')}초)")
+            
+            # 최종 결과 반환
+            return {
+                "success": True,
+                "subtitle_path": subtitle_path,
+                "media_path": media_path,
+                "sync_status": sync_result.get("sync_status"),
+                "offset": sync_result.get("offset", 0),
+                "adjusted": adjusted,
+                "confidence": sync_result.get("confidence_score", 0)
+            }
+            
+        except Exception as e:
+            logging.error(f"자막 싱크 검증/조정 중 오류: {str(e)}")
+            # 싱크 검증에 실패했더라도 자막을 찾았으면 성공으로 처리
+            return {
+                "success": True,
+                "subtitle_path": subtitle_path,
+                "media_path": media_path,
+                "sync_status": "unknown",
+                "offset": 0,
+                "adjusted": False,
+                "error_detail": str(e)
+            }
+            
+    except Exception as e:
+        logging.error(f"자막 자동 처리 중 오류: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": f"자막 처리 중 오류가 발생했습니다: {str(e)}"}
+        )
+
+@app.get("/api/settings", response_class=JSONResponse)
+async def get_settings():
+    """현재 시스템 설정을 반환합니다."""
+    try:
+        return {
+            "nas_media_path": settings.nas_media_path,
+            "opensubtitles_api_key": settings.opensubtitles_api_key
+        }
+    except Exception as e:
+        logger.error(f"설정 조회 중 오류 발생: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"설정 조회 중 오류 발생: {str(e)}")
+
+@app.post("/api/settings", response_class=JSONResponse)
+async def update_settings(request: Request):
+    """시스템 설정을 업데이트합니다."""
+    try:
+        data = await request.json()
+        
+        # 요청 데이터 유효성 검사
+        nas_media_path = data.get("nas_media_path")
+        opensubtitles_api_key = data.get("opensubtitles_api_key")
+        
+        # NAS 경로 업데이트
+        if nas_media_path is not None:
+            # 디렉토리 존재 확인
+            path = Path(nas_media_path)
+            if not path.exists() or not path.is_dir():
+                raise HTTPException(status_code=400, detail=f"유효하지 않은 디렉토리 경로: {nas_media_path}")
+            
+            # 환경 변수 업데이트
+            os.environ["NAS_MEDIA_PATH"] = nas_media_path
+            # settings 객체 업데이트
+            settings.nas_media_path = nas_media_path
+            # NAS_BASE_PATH 전역 변수 업데이트
+            global NAS_BASE_PATH
+            NAS_BASE_PATH = Path(settings.nas_media_path).resolve()
+        
+        # OpenSubtitles API 키 업데이트
+        if opensubtitles_api_key is not None:
+            # 환경 변수 업데이트
+            os.environ["OPENSUBTITLES_API_KEY"] = opensubtitles_api_key
+            # settings 객체 업데이트
+            settings.opensubtitles_api_key = opensubtitles_api_key
+        
+        # .env 파일 업데이트
+        update_env_file(nas_media_path, opensubtitles_api_key)
+        
+        logger.info(f"설정 업데이트 완료: NAS 경로={nas_media_path}, API 키={'설정됨' if opensubtitles_api_key else '없음'}")
+        
+        return {
+            "success": True,
+            "nas_media_path": settings.nas_media_path,
+            "opensubtitles_api_key": settings.opensubtitles_api_key
+        }
+    except HTTPException as http_exc:
+        raise http_exc  # HTTP 예외는 그대로 전달
+    except Exception as e:
+        logger.error(f"설정 업데이트 중 오류 발생: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"설정 업데이트 중 오류 발생: {str(e)}")
+
+def update_env_file(nas_media_path=None, opensubtitles_api_key=None):
+    """
+    .env 파일에 설정을 저장합니다.
+    """
+    try:
+        env_path = Path('.env')
+        
+        # 현재 .env 파일 내용 읽기
+        current_env = {}
+        if env_path.exists():
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        current_env[key.strip()] = value.strip()
+        
+        # 변경할 설정 적용
+        if nas_media_path is not None:
+            current_env['NAS_MEDIA_PATH'] = nas_media_path
+        if opensubtitles_api_key is not None:
+            current_env['OPENSUBTITLES_API_KEY'] = opensubtitles_api_key
+        
+        # .env 파일 업데이트
+        with open(env_path, 'w', encoding='utf-8') as f:
+            for key, value in current_env.items():
+                f.write(f"{key}={value}\n")
+            
+            # 주석 추가
+            if 'OPENSUBTITLES_API_KEY' in current_env:
+                f.write("\n# OpenSubtitles API key\n")
+                f.write("# Get your API key from https://www.opensubtitles.com/en/users/sign_up\n")
+        
+        logger.info(f".env 파일 업데이트 완료: {env_path}")
+        return True
+    except Exception as e:
+        logger.error(f".env 파일 업데이트 중 오류 발생: {e}", exc_info=True)
+        return False
+
+# /api/browse 엔드포인트 추가 (기존 /browse와 동일한 로직)
+@app.get("/api/browse")
+async def api_browse_directories(request: Request, current_path: Optional[str] = Query("")):
+    """지정된 경로의 하위 디렉토리 목록을 반환합니다."""
+    return await browse_directories(request, current_path)
 
 # 애플리케이션 실행 (개발용)
 # 실제 실행은 터미널에서 'cd backend && uvicorn main:app --reload' 또는

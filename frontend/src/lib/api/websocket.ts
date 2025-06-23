@@ -3,192 +3,169 @@
  * FastAPI 백엔드와의 WebSocket 통신을 관리합니다.
  */
 
-import { writable, type Writable } from 'svelte/store';
+import { writable } from 'svelte/store';
 import type { WhisperJob } from './index';
 
-// WebSocket 기본 URL 설정
-const WS_BASE_URL = 'ws://localhost:8000/ws';
+// 상태 관리
+export const isConnected = writable(false);
+export const socketMessages = writable<any[]>([]);
 
-// 타입 정의
-export type WebSocketStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
-export type WebSocketMessage = JobUpdateMessage | JobProgressMessage;
-
-interface JobUpdateMessage {
-  type: 'job_update';
-  data: WhisperJob;
-}
-
-interface JobProgressMessage {
-  type: 'job_progress';
-  data: {
-    job_id: string;
-    progress: number;
-    status: string;
-  };
-}
-
-// 스토어 정의
-export const wsStatus: Writable<WebSocketStatus> = writable('disconnected');
-export const wsReconnectAttempts: Writable<number> = writable(0);
-export const jobUpdates: Writable<WhisperJob[]> = writable([]);
-
-// WebSocket 인스턴스
-let ws: WebSocket | null = null;
-let reconnectTimer: number | null = null;
+// 설정
+const WS_URL = 'ws://localhost:8000';
+const CLIENT_ID = 'frontend-client'; // 고정 클라이언트 ID
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_INTERVAL = 3000; // 3초
 
+// WebSocket 인스턴스
+let ws: WebSocket | null = null;
+let reconnectAttempts = 0;
+let reconnectTimer: number | null = null;
+
 /**
- * WebSocket 메시지 핸들러
+ * WebSocket 메시지 처리 함수
  */
-const handleMessage = (event: MessageEvent) => {
+function handleWebSocketMessage(event: MessageEvent) {
   try {
-    const message = JSON.parse(event.data) as WebSocketMessage;
+    const data = JSON.parse(event.data);
+    console.log('WebSocket 메시지 수신:', data);
     
-    switch (message.type) {
-      case 'job_update':
-        updateJob(message.data);
+    // 메시지 종류에 따른 처리
+    switch (data.type) {
+      case 'progress_update':
+        // 진행 상황 업데이트 처리
+        socketMessages.update(messages => [...messages, data]);
         break;
-      case 'job_progress':
-        updateJobProgress(message.data);
+        
+      case 'job_complete':
+        // 작업 완료 처리
+        socketMessages.update(messages => [...messages, data]);
         break;
+        
+      case 'job_error':
+        // 작업 오류 처리
+        socketMessages.update(messages => [...messages, data]);
+        console.error('작업 오류:', data.error);
+        break;
+        
       default:
-        console.warn('알 수 없는 WebSocket 메시지 타입:', message);
+        // 기타 메시지 처리
+        socketMessages.update(messages => [...messages, data]);
     }
   } catch (error) {
-    console.error('WebSocket 메시지 처리 오류:', error);
+    console.error('WebSocket 메시지 파싱 오류:', error);
   }
-};
+}
 
 /**
- * 작업 상태 업데이트
+ * WebSocket 연결 함수
  */
-const updateJob = (job: WhisperJob) => {
-  jobUpdates.update(jobs => {
-    const existingIndex = jobs.findIndex(j => j.id === job.id);
-    
-    if (existingIndex >= 0) {
-      jobs[existingIndex] = { ...jobs[existingIndex], ...job };
-    } else {
-      jobs.push(job);
-    }
-    
-    return jobs;
-  });
-};
-
-/**
- * 작업 진행률 업데이트
- */
-const updateJobProgress = (data: { job_id: string; progress: number; status: string }) => {
-  jobUpdates.update(jobs => {
-    const existingIndex = jobs.findIndex(j => j.id === data.job_id);
-    
-    if (existingIndex >= 0) {
-      jobs[existingIndex] = { 
-        ...jobs[existingIndex], 
-        progress: data.progress, 
-        status: data.status as WhisperJob['status'] 
-      };
-    }
-    
-    return jobs;
-  });
-};
-
-/**
- * WebSocket 연결
- */
-export const connectWebSocket = () => {
-  // 이미 연결된 경우 중복 연결 방지
+export function connectWebSocket() {
   if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
-    console.log('WebSocket이 이미 연결되어 있습니다.');
+    console.log('WebSocket이 이미 연결 중이거나 연결되어 있습니다.');
     return;
   }
   
-  // 연결 상태 업데이트
-  wsStatus.set('connecting');
-  
   try {
-    // WebSocket 인스턴스 생성
-    ws = new WebSocket(WS_BASE_URL);
+    // WebSocket 연결 URL에 client_id 추가
+    ws = new WebSocket(`${WS_URL}/ws/${CLIENT_ID}`);
     
-    // 이벤트 핸들러 등록
+    // 이벤트 핸들러 설정
     ws.onopen = () => {
       console.log('WebSocket 연결됨');
-      wsStatus.set('connected');
-      wsReconnectAttempts.set(0);
+      isConnected.set(true);
+      reconnectAttempts = 0; // 재연결 시도 횟수 초기화
     };
     
-    ws.onmessage = handleMessage;
+    ws.onmessage = handleWebSocketMessage;
     
     ws.onclose = () => {
       console.log('WebSocket 연결 종료됨');
-      wsStatus.set('disconnected');
-      scheduleReconnect();
+      isConnected.set(false);
+      ws = null;
+      
+      // 자동 재연결
+      attemptReconnect();
     };
     
     ws.onerror = (error) => {
       console.error('WebSocket 오류:', error);
-      wsStatus.set('error');
     };
   } catch (error) {
-    console.error('WebSocket 연결 실패:', error);
-    wsStatus.set('error');
-    scheduleReconnect();
+    console.error('WebSocket 연결 오류:', error);
+    isConnected.set(false);
   }
-};
+}
 
 /**
- * WebSocket 재연결 스케줄링
+ * WebSocket 연결 해제 함수
  */
-const scheduleReconnect = () => {
-  // 이미 재연결 타이머가 설정된 경우 중복 설정 방지
-  if (reconnectTimer !== null) {
-    return;
-  }
-  
-  wsReconnectAttempts.update(attempts => {
-    const newAttempts = attempts + 1;
-    
-    if (newAttempts <= MAX_RECONNECT_ATTEMPTS) {
-      console.log(`WebSocket 재연결 시도 (${newAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
-      
-      reconnectTimer = window.setTimeout(() => {
-        reconnectTimer = null;
-        connectWebSocket();
-      }, RECONNECT_INTERVAL);
-    } else {
-      console.error('최대 재연결 시도 횟수 초과. 재연결 중단.');
-    }
-    
-    return newAttempts;
-  });
-};
-
-/**
- * WebSocket 연결 종료
- */
-export const disconnectWebSocket = () => {
+export function disconnectWebSocket() {
   if (ws) {
+    console.log('WebSocket 연결 종료 중...');
     ws.close();
     ws = null;
   }
   
   // 재연결 타이머 취소
-  if (reconnectTimer !== null) {
+  if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
   
-  wsStatus.set('disconnected');
-  wsReconnectAttempts.set(0);
-};
+  isConnected.set(false);
+}
+
+/**
+ * WebSocket 재연결 시도 함수
+ */
+function attemptReconnect() {
+  // 최대 재연결 시도 횟수 확인
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    console.error('최대 재연결 시도 횟수 초과. 재연결 중단.');
+    return;
+  }
+  
+  // 이미 타이머가 설정되어 있는지 확인
+  if (reconnectTimer !== null) return;
+  
+  reconnectAttempts++;
+  console.log(`WebSocket 재연결 시도 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+  
+  // 일정 시간 후 재연결 시도
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null;
+    connectWebSocket();
+  }, RECONNECT_INTERVAL);
+}
+
+/**
+ * 서버에 메시지 전송 함수
+ */
+export function sendMessage(message: any) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.error('WebSocket이 연결되어 있지 않습니다.');
+    return false;
+  }
+  
+  try {
+    ws.send(JSON.stringify(message));
+    return true;
+  } catch (error) {
+    console.error('WebSocket 메시지 전송 오류:', error);
+    return false;
+  }
+}
+
+/**
+ * 작업 중지 요청 함수
+ */
+export function stopProcessing() {
+  return sendMessage({ type: 'stop_processing' });
+}
 
 export default {
   connectWebSocket,
   disconnectWebSocket,
-  wsStatus,
-  wsReconnectAttempts,
-  jobUpdates
+  isConnected,
+  socketMessages
 }; 

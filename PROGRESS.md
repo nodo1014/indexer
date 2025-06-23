@@ -110,10 +110,17 @@ NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로
     *   [X] 오류 메시지 및 로깅 개선
     *   [X] WebSocket 연결 안정성 향상 (재연결 로직 추가)
     *   [X] 코드 구조 및 가독성 향상
-8.  **[ ] 배포 및 테스트:**
+8.  **[X] 성능 최적화 및 로깅 개선:**
+    *   [X] 컬러 로깅 지원 추가 (coloredlogs 활용)
+    *   [X] 진행 상태 시각화 개선 (이모지, 진행바 등)
+    *   [X] 파일 스캔 성능 최적화 (병렬 처리, 캐싱)
+    *   [X] Whisper 진행률 표시 개선 (tqdm 프로그레스 바)
+    *   [X] 대용량 디렉토리 처리 성능 향상
+    *   [X] 로깅 포맷 표준화 및 일관성 유지
+9.  **[ ] 배포 및 테스트:**
     *   [ ] Ubuntu 서버 환경 설정 (NAS 마운트 확인)
     *   [ ] 실제 미디어 파일 테스트
-9.  **[ ] 2단계: 자막 확보 자동화 프로세스 구현**
+10. **[ ] 2단계: 자막 확보 자동화 프로세스 구현**
     *   [ ] 자막 존재 검사 로직 추가
     *   [ ] 내장 자막 추출/변환/검증 기능 구현 (ffmpeg, pysubs2 등 활용)
     *   [ ] 외부 자막 다운로드/싱크 대조/자동 저장 기능 구현 (OpenSubtitles API 등)
@@ -183,6 +190,12 @@ NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로
 - **[완료] 파일 검색 결과 요약 상세 표시**
   - batch-status 영역에 총 파일 수, 영상/오디오 개수, 자막 유무 등 표시
   - 관련 파일: backend/templates/index.html, backend/services/file_scanner.py
+
+- **[완료] Whisper 작업 진행률 표시 개선**
+  - tqdm 라이브러리를 활용한 프로그레스 바 표시
+  - 이모지 기반 로그 가독성 향상
+  - 실시간 진행 상태 업데이트
+  - 관련 파일: backend/services/whisper_runner.py
 
 - **[진행 중] Whisper 변환 subprocess 구조 리팩토링**
   - 대용량/라지 모델 실수 방지를 위한 별도 프로세스 실행 구조
@@ -562,6 +575,34 @@ NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로
 
 ## 📅 날짜별 작업 이력
 
+### 2024-08-10
+
+- **SvelteKit 자막 싱크 검증 기능 개발**
+  - 자막 싱크 검증 API 인터페이스 구현
+  - SubtitleSyncChecker 컴포넌트 개발 (세그먼트별 싱크 분석 및 시각화)
+  - 자막 오프셋 수동 조정 기능 추가
+  - 자막 오프셋 자동 감지 및 제안 기능
+  - 싱크 검증 페이지 구현 (/sync-check 라우트)
+  - 관련 파일: frontend/src/lib/components/SubtitleSyncChecker.svelte, frontend/src/routes/sync-check/+page.svelte
+
+### 2024-08-09
+
+- **SvelteKit 환경설정 기능 개발**
+  - settings 스토어 구현 (로컬 스토리지에 사용자 설정 저장)
+  - SettingsPanel 컴포넌트 구현 (Whisper, UI, 필터 설정)
+  - 다크 모드 지원 (Tailwind CSS 다크 모드 설정)
+  - 파일 필터링 기능 (비디오/오디오 전용, 자막 유무 필터) 
+  - 관련 파일: frontend/src/lib/stores/settings.ts, frontend/src/lib/components/SettingsPanel.svelte
+
+### 2024-08-08
+
+- **SvelteKit 프론트엔드 마이그레이션 진행**
+  - jobs 스토어 구현 완료 (작업 관리 상태 처리)
+  - 기존 컴포넌트 스타일 개선 및 TailwindCSS 적용
+  - DirectoryBrowser, MediaFilesTable, JobStatusPanel 컴포넌트 디자인 통일
+  - 프로그레스 바, 버튼 등 UI 컴포넌트 스타일 정의
+  - 관련 파일: frontend/src/lib/stores/jobs.ts, frontend/src/app.postcss, frontend/src/lib/components/
+
 ### 2024-05-05
 
 - **SvelteKit 프론트엔드 마이그레이션 시작**
@@ -608,27 +649,18 @@ NAS에 저장된 미디어 파일 중 자막이 없는 파일을 효율적으로
 
 ### 2025년 5월
 
-#### 5월 5일
-- 자막 싱크 검증 및 보정 시스템 문서화 완료
-- 디렉토리 브라우저 검색 기능 개선
-- 자막 자동 다운로드 시스템 안정성 향상
+#### 5월 7일
+- UI/UX 개선
+  - 미디어 리스트 위로 컨트롤 패널 이동하여 접근성 향상
+  - 자막 생성 및 다운로드 옵션을 항상 화면 상단에 표시하여 스크롤 최소화
+  - 작업 상세 정보 모달 추가: 작업 클릭 시 모달 창으로 상세 내역 표시
+  - 작업 실패 시 단계별 오류 정보 표시 기능 추가
+  - API 호출 방식 수정: 상대 경로 대신 절대 경로 사용으로 페이지 유지 문제 해결
+  - 관련 파일: frontend/src/lib/components/JobStatusPanel.svelte, frontend/src/routes/whisper-transcribe/+page.svelte, frontend/src/routes/+page.svelte, frontend/src/lib/components/SubtitleDownloader.svelte
 
-#### 5월 4일
-- 자막 싱크 검증 시스템 구현 완료
-- 3구간 샘플링 방식 적용으로 정확도 향상
-- 보정 임계값 조정 및 예외 처리 추가
-
-#### 5월 3일
-- Whisper 기반 싱크 검증 프로토타입 개발
-- FFmpeg 오디오 추출 및 처리 기능 구현
-- Levenshtein 거리 기반 텍스트 유사도 계산 구현
-
-#### 5월 2일
-- OpenSubtitles API 통합 및 자막 검색 기능 완성
-- 자막 캐싱 시스템 구현으로 API 호출 최적화
-- 파일명 기반 영화/시리즈 정보 추출 기능 개선
-
-#### 5월 1일
-- 탭 UI 디자인 통일 및 컴포넌트화
-- JS 코드 모듈화 및 파일 분리 완료
-- 디렉토리 탐색기 UI 개선
+#### 5월 6일
+- 메뉴 구조 변경: 메뉴 순서를 "홈(자막 다운로드) - AI 자막 생성 - 자막 싱크 검증 - About"으로 수정
+- 기존 메인 페이지(AI 자막 생성)를 /whisper-transcribe 경로로 이동
+- 자막 다운로드 페이지를 홈(/) 페이지로 변경
+- 탐색기 관련 404 오류 수정
+- 환경설정에 NAS 경로와 OpenSubtitles API 키 저장 기능 추가

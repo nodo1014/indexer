@@ -1,14 +1,18 @@
-<script>
+<script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { searchMediaFiles } from '$lib/api';
   import { currentPath } from '$lib/stores/directory';
+  import { filterSettings } from '$lib/stores/settings';
+  import type { MediaFile } from '$lib/api';
   
-  export let withSubtitle = false;
+  // 프로퍼티 정의 (외부에서 명시적으로 설정하지 않으면 사용자 필터 설정 사용)
+  export let withSubtitle: boolean | null = null;
+  export let path: string = ''; // 새로 추가된 프로퍼티
   
   // 데이터 상태
-  let files = [];
+  let files: MediaFile[] = [];
   let isLoading = false;
-  let error = null;
+  let error: string | null = null;
   let summary = {
     total_files: 0,
     video_count: 0,
@@ -18,21 +22,40 @@
   };
   
   // 선택된 파일 관리
-  let selectedFiles = [];
+  let selectedFiles: string[] = [];
   
   // 이벤트 디스패처
-  const dispatch = createEventDispatcher();
+  const dispatch = createEventDispatcher<{
+    selectionChange: string[];
+  }>();
+  
+  // 파일 유형 필터링을 위한 계산된 값
+  $: effectiveWithSubtitle = withSubtitle !== null ? withSubtitle : $filterSettings.showWithSubtitle;
+  
+  // 경로 우선순위: 프로퍼티 경로 > 스토어 경로
+  $: effectivePath = path || $currentPath;
   
   // 파일 목록 로드
   async function loadFiles() {
-    if (!$currentPath) return;
+    if (!effectivePath) return;
     
     isLoading = true;
     error = null;
     
     try {
-      const result = await searchMediaFiles($currentPath, withSubtitle);
-      files = result.files;
+      const result = await searchMediaFiles(effectivePath, effectiveWithSubtitle);
+      // API에서 받아온 모든 파일
+      let allFiles = result.files;
+      
+      // 필터 설정에 따라 파일 필터링
+      if ($filterSettings.videoOnly) {
+        allFiles = allFiles.filter(file => file.type === 'video');
+      } else if ($filterSettings.audioOnly) {
+        allFiles = allFiles.filter(file => file.type === 'audio');
+      }
+      
+      files = allFiles;
+      
       summary = {
         total_files: result.total_files,
         video_count: result.video_count,
@@ -42,22 +65,24 @@
       };
       selectedFiles = [];
     } catch (err) {
-      error = err.message || '파일 목록을 불러오는 중 오류가 발생했습니다.';
+      error = err instanceof Error ? err.message : '파일 목록을 불러오는 중 오류가 발생했습니다.';
       files = [];
     } finally {
       isLoading = false;
     }
   }
   
-  // 현재 경로가 변경될 때마다 파일 목록 다시 로드
-  $: $currentPath && loadFiles();
+  // 경로나 필터 설정이 변경될 때마다 파일 목록 다시 로드
+  $: effectivePath && effectiveWithSubtitle !== undefined && loadFiles();
+  $: $filterSettings && loadFiles();
+  $: path && loadFiles(); // 부모에서 path 프로퍼티가 변경되면 로드
   
   // 전체 선택/해제
-  function toggleSelectAll(event) {
-    const checked = event.target.checked;
+  function toggleSelectAll(event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
     if (checked) {
       selectedFiles = files
-        .filter(file => !file.has_subtitle || withSubtitle)
+        .filter(file => !file.has_subtitle || effectiveWithSubtitle)
         .map(file => file.path);
     } else {
       selectedFiles = [];
@@ -67,8 +92,8 @@
   }
   
   // 개별 파일 선택/해제
-  function toggleSelect(file, event) {
-    const checked = event.target.checked;
+  function toggleSelect(file: MediaFile, event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
     if (checked) {
       selectedFiles = [...selectedFiles, file.path];
     } else {
@@ -79,7 +104,7 @@
   }
   
   // 파일 크기 포맷팅 (바이트 → 읽기 쉬운 형식)
-  function formatFileSize(size) {
+  function formatFileSize(size: number): string {
     if (size < 1024) return `${size} B`;
     if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
     if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -92,17 +117,22 @@
   }
 </script>
 
-<div class="media-files-table">
+<div class="media-files-table card">
   <!-- 요약 정보 -->
   <div class="mb-4 flex justify-between items-center">
     <div>
       <h2 class="text-lg font-semibold">
-        {withSubtitle ? '모든 미디어 파일' : '자막 없는 미디어 파일'}
+        {effectiveWithSubtitle ? '모든 미디어 파일' : '자막 없는 미디어 파일'}
+        {#if $filterSettings.videoOnly}
+          (비디오만)
+        {:else if $filterSettings.audioOnly}
+          (오디오만)
+        {/if}
       </h2>
       {#if summary.total_files > 0}
         <p class="text-sm text-gray-600">
           총 {summary.total_files}개 파일 (비디오: {summary.video_count}, 오디오: {summary.audio_count})
-          {#if !withSubtitle}
+          {#if !effectiveWithSubtitle}
             / 자막 없음: {summary.without_subtitle_count}
           {:else}
             / 자막 있음: {summary.with_subtitle_count}
@@ -135,49 +165,49 @@
   <!-- 파일 없음 -->
   {:else if files.length === 0}
     <div class="p-8 text-center text-gray-500 border rounded">
-      <p>{$currentPath ? '이 폴더에는' : '선택된 경로에는'} {withSubtitle ? '미디어 파일이' : '자막 없는 미디어 파일이'} 없습니다.</p>
+      <p>{effectivePath ? '이 폴더에는' : '선택된 경로에는'} {effectiveWithSubtitle ? '미디어 파일이' : '자막 없는 미디어 파일이'} 없습니다.</p>
     </div>
   
   <!-- 파일 목록 테이블 -->
   {:else}
-    <div class="overflow-x-auto">
-      <table class="w-full border-collapse">
+    <div class="table-container">
+      <table class="data-table">
         <thead>
-          <tr class="bg-gray-100">
-            <th class="p-2 text-left w-12">
+          <tr>
+            <th class="w-12">
               <input 
                 type="checkbox" 
                 on:change={toggleSelectAll} 
-                checked={selectedFiles.length === files.filter(f => !f.has_subtitle || withSubtitle).length && files.length > 0}
+                checked={selectedFiles.length === files.filter(f => !f.has_subtitle || effectiveWithSubtitle).length && files.length > 0}
               />
             </th>
-            <th class="p-2 text-left">파일명</th>
-            <th class="p-2 text-left w-24">타입</th>
-            <th class="p-2 text-left w-24">크기</th>
-            <th class="p-2 text-left w-24">자막</th>
+            <th>파일명</th>
+            <th class="w-24">타입</th>
+            <th class="w-24">크기</th>
+            <th class="w-24">자막</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-200">
+        <tbody>
           {#each files as file}
-            <tr class="hover:bg-gray-50">
-              <td class="p-2">
+            <tr>
+              <td>
                 <input 
                   type="checkbox" 
-                  disabled={!withSubtitle && file.has_subtitle}
+                  disabled={!effectiveWithSubtitle && file.has_subtitle}
                   checked={selectedFiles.includes(file.path)} 
                   on:change={event => toggleSelect(file, event)}
                 />
               </td>
-              <td class="p-2 truncate" title={file.name}>
+              <td class="truncate" title={file.name}>
                 {file.name}
               </td>
-              <td class="p-2">
+              <td>
                 <span class={file.type === 'video' ? 'text-blue-600' : 'text-green-600'}>
                   {file.type === 'video' ? '비디오' : '오디오'}
                 </span>
               </td>
-              <td class="p-2">{formatFileSize(file.size)}</td>
-              <td class="p-2">
+              <td>{formatFileSize(file.size)}</td>
+              <td>
                 {#if file.has_subtitle}
                   <span class="text-green-600">있음</span>
                 {:else}
@@ -196,7 +226,7 @@
         <span class="text-sm font-medium">
           {selectedFiles.length}개 파일 선택됨
         </span>
-        <button class="btn btn-sm btn-secondary" on:click={() => selectedFiles = []}>
+        <button class="btn btn-sm btn-secondary" on:click={() => { selectedFiles = []; dispatch('selectionChange', []); }}>
           선택 해제
         </button>
       </div>

@@ -1,10 +1,11 @@
 import logging
 import time
-from typing import List, Dict
+from typing import List, Dict, Optional, Callable
 from pathlib import Path
 import whisper # openai-whisper 패키지
 import asyncio # Semaphore 사용 위해 추가
 import json # JSON 로딩 추가 (main.py에서 이동 가능하나 일단 여기둠)
+import tqdm # 프로그레스바 지원
 
 # Updated: 2025-05-04 (GitHub Copilot + Claude 3.7 지원)
 
@@ -45,15 +46,16 @@ async def run_whisper_on_file(manager: ConnectionManager, client_id: str, file_p
     result_data = {"status": "error", "message": "작업 시작 전 오류", "file_path": file_path}
 
     await manager.send_personal_message({"type": "status_update", "file_path": file_path, "status": "waiting", "message": "대기 중...", "progress_percent": 0}, client_id)
+    logger.info(f"🔄 [{file_name}] Whisper 작업이 대기열에 추가되었습니다. (모델: {model_size}, 언어: {language})")
 
     async with whisper_semaphore:
         if task.cancelled():
-            logger.info(f"작업 시작 전 취소됨: {file_path} (Client: {client_id})")
+            logger.info(f"❌ [{file_name}] 작업 시작 전 취소됨 (Client: {client_id})")
             result_data = {"status": "cancelled", "message": "시작 전 취소됨", "file_path": file_path}
             await manager.send_personal_message({"type": "status_update", "file_path": file_path, "status": "cancelled", "message": "취소됨", "progress_percent": 0}, client_id)
             return result_data
 
-        logger.info(f"Whisper 처리 시작 (Semaphore 획득): {file_path} (모델: {model_size}) (Client: {client_id})")
+        logger.info(f"🚀 [{file_name}] Whisper 처리 시작 (모델: {model_size}, 언어: {language}) (Client: {client_id})")
         start_time = time.time()
         output_dir = Path(file_path).parent
         output_base = Path(file_path).stem
@@ -64,9 +66,11 @@ async def run_whisper_on_file(manager: ConnectionManager, client_id: str, file_p
             await manager.send_personal_message({"type": "log", "file_path": file_path, "status": "info", "message": f"Whisper 모델 로드 시작 ({model_size})", "progress_percent": 0}, client_id)
             await manager.send_personal_message({"type": "status_update", "file_path": file_path, "status": "processing", "message": f"모델 로드 중 ({model_size})...", "progress_percent": 5}, client_id)
             if task.cancelled(): raise asyncio.CancelledError("모델 로드 중 취소됨")
+            
+            logger.info(f"📚 [{file_name}] Whisper 모델 '{model_size}' 로드 중...")
             model = whisper.load_model(model_size)
             await manager.send_personal_message({"type": "log", "file_path": file_path, "status": "info", "message": f"Whisper 모델 로드 완료 ({model_size})", "progress_percent": 5}, client_id)
-            logger.info(f"Whisper 모델 로드 완료: {model_size} (Client: {client_id})")
+            logger.info(f"✅ [{file_name}] Whisper 모델 '{model_size}' 로드 완료")
 
             # 2. 언어 감지 및 처리
             await manager.send_personal_message({"type": "log", "file_path": file_path, "status": "info", "message": "언어 감지 및 처리 시작", "progress_percent": 10}, client_id)
@@ -91,24 +95,65 @@ async def run_whisper_on_file(manager: ConnectionManager, client_id: str, file_p
                     asyncio.get_event_loop()
                 )
                 # 로그 메시지도 추가
+                log_message = f"Segment {current}/{total} 처리 중"
                 asyncio.run_coroutine_threadsafe(
                     manager.send_personal_message({
                         "type": "log",
                         "file_path": file_path,
                         "status": "info",
-                        "message": f"Segment {current}/{total} 처리 중",
+                        "message": log_message,
                         "progress_percent": percent
                     }, client_id),
                     asyncio.get_event_loop()
                 )
+                # 터미널에도 진행률 표시
+                logger.info(f"⏳ [{file_name}] 진행률: {percent}% - {log_message}")
+
+            # 터미널에 tqdm 프로그레스 표시를 위한 커스텀 콜백
+            class WhisperProgressBar:
+                def __init__(self, file_name: str):
+                    self.file_name = file_name
+                    self.pbar = None
+                    self.total = 0
+                    self.current = 0
+                
+                def __call__(self, current: int, total: int):
+                    # progress_callback 호출하여 WebSocket 업데이트
+                    progress_callback(current, total)
+                    
+                    # tqdm 프로그레스바 초기화 또는 업데이트
+                    if self.pbar is None:
+                        self.total = total
+                        self.pbar = tqdm.tqdm(
+                            total=total,
+                            desc=f"[{self.file_name}] Whisper 변환",
+                            unit="segment"
+                        )
+                    
+                    # 진행 상태 업데이트
+                    if current > self.current:
+                        self.pbar.update(current - self.current)
+                        self.current = current
+                    
+                    # 완료 시 닫기
+                    if current >= total and self.pbar is not None:
+                        self.pbar.close()
+                        self.pbar = None
 
             # model.transcribe는 동기 함수이므로, 진행률 콜백을 segments 처리에 삽입
-            def patched_transcribe(*args, **kwargs):
-                result = model.transcribe(*args, **kwargs)
+            async def patched_transcribe(*args, progress_bar: WhisperProgressBar, **kwargs):
+                result = await asyncio.to_thread(lambda: model.transcribe(*args, **kwargs))
                 segments = result.get('segments', [])
                 total = len(segments)
-                for idx, seg in enumerate(segments):
-                    progress_callback(idx+1, total)
+                
+                # segments가 이미 처리된 상태라서 수동으로 진행률 100%로 업데이트
+                if progress_bar.pbar is not None:
+                    progress_bar.pbar.n = total
+                    progress_bar.pbar.refresh()
+                    progress_bar.pbar.close()
+                
+                # WebSocket용 진행률도 100%로 업데이트
+                progress_callback(total, total)
                 return result
 
             # 언어 옵션 적용
@@ -117,22 +162,27 @@ async def run_whisper_on_file(manager: ConnectionManager, client_id: str, file_p
                 transcribe_kwargs['language'] = language
 
             await manager.send_personal_message({"type": "log", "file_path": file_path, "status": "info", "message": "Whisper 변환 시작", "progress_percent": progress_percent}, client_id)
+            logger.info(f"🎧 [{file_name}] Whisper 변환 시작 중...")
+            
+            # 프로그레스바 객체 생성
+            progress_bar = WhisperProgressBar(file_name)
+            
             # 실제 변환 (스레드에서 실행)
-            result = await asyncio.to_thread(patched_transcribe, file_path, verbose=False, **transcribe_kwargs)
+            result = await patched_transcribe(file_path, verbose=False, progress_bar=progress_bar, **transcribe_kwargs)
             await manager.send_personal_message({"type": "log", "file_path": file_path, "status": "info", "message": "Whisper 변환 완료", "progress_percent": progress_percent}, client_id)
 
-            logger.info(f"Whisper transcribe 완료: {file_name} (Client: {client_id}) ")
+            logger.info(f"✅ [{file_name}] Whisper 변환 완료!")
             if task.cancelled(): raise asyncio.CancelledError("처리 완료 후 취소됨")
 
             detected_language = result.get("language", "unk")
             await manager.send_personal_message({"type": "log", "file_path": file_path, "status": "info", "message": f"감지된 언어: {detected_language}", "progress_percent": progress_percent}, client_id)
-            logger.info(f"감지된 언어: {detected_language} (파일: {file_name}, Client: {client_id})")
+            logger.info(f"🔍 [{file_name}] 감지된 언어: {detected_language}")
 
             # 3. 영어 필터링
             if detected_language != 'en' and language in (None, '', 'auto', 'en'):
                 message = f"건너뜀 (언어: {detected_language})"
                 await manager.send_personal_message({"type": "log", "file_path": file_path, "status": "info", "message": message, "progress_percent": 100}, client_id)
-                logger.info(f"Whisper 처리 건너뜀 (영어가 아님): {file_path} (Client: {client_id}) - 언어: {detected_language}")
+                logger.info(f"⚠️ [{file_name}] Whisper 처리 건너뜀 (영어가 아님) - 언어: {detected_language}")
                 result_data = {"status": "skipped", "message": message, "language": detected_language, "file_path": file_path}
                 await manager.send_personal_message({"type": "status_update", "file_path": file_path, "status": "skipped", "language": detected_language, "message": message, "progress_percent": 100}, client_id)
                 return result_data
@@ -142,6 +192,7 @@ async def run_whisper_on_file(manager: ConnectionManager, client_id: str, file_p
             srt_path = output_dir / srt_filename
             await manager.send_personal_message({"type": "log", "file_path": file_path, "status": "info", "message": "SRT 파일 저장 시작", "progress_percent": 95}, client_id)
             await manager.send_personal_message({"type": "status_update", "file_path": file_path, "status": "processing", "message": "SRT 파일 저장 중...", "progress_percent": 95}, client_id)
+            logger.info(f"💾 [{file_name}] SRT 파일 저장 중... ({srt_filename})")
             if task.cancelled(): raise asyncio.CancelledError("SRT 저장 전 취소됨")
 
             # 파일 저장은 상대적으로 빠르므로 스레드로 감쌀 필요는 없을 수 있음
@@ -158,13 +209,13 @@ async def run_whisper_on_file(manager: ConnectionManager, client_id: str, file_p
                 if default_srt_path.exists() and default_srt_path != srt_path :
                     # whisper가 기본 이름으로 저장했고, 우리가 원하는 이름과 다르면 변경
                      default_srt_path.rename(srt_path)
-                     logger.info(f"SRT 파일 저장 완료 (이름 변경됨): {srt_path} (Client: {client_id})")
+                     logger.info(f"✅ [{file_name}] SRT 파일 저장 완료 (이름 변경됨): {srt_path}")
                 elif srt_path.exists():
                     # 이미 원하는 이름으로 저장되었거나, writer가 언어 코드를 포함하여 생성
-                     logger.info(f"SRT 파일 저장 완료: {srt_path} (Client: {client_id})")
+                     logger.info(f"✅ [{file_name}] SRT 파일 저장 완료: {srt_path}")
                 else:
                      # WriteSRT가 작동하지 않았거나 경로 문제 발생 시 수동 생성 (기존 로직 유지)
-                    logger.warning(f"WriteSRT 유틸리티로 SRT 생성이 안된 것 같습니다. 수동으로 생성합니다. ({srt_path})")
+                    logger.warning(f"⚠️ [{file_name}] WriteSRT 유틸리티로 SRT 생성이 안된 것 같습니다. 수동으로 생성합니다.")
                     with open(srt_path, "w", encoding="utf-8") as srt_file:
                         i = 1
                         for segment in result['segments']:
@@ -175,10 +226,10 @@ async def run_whisper_on_file(manager: ConnectionManager, client_id: str, file_p
                             srt_file.write(f"{start} --> {end}\n")
                             srt_file.write(f"{text}\n\n")
                             i += 1
-                    logger.info(f"SRT 파일 저장 완료 (수동 생성): {srt_path} (Client: {client_id})")
+                    logger.info(f"✅ [{file_name}] SRT 파일 수동 저장 완료: {srt_path}")
 
             except Exception as write_err:
-                 logger.error(f"SRT 파일 저장 중 오류 발생 ({file_name}, Client: {client_id}): {write_err}", exc_info=True)
+                 logger.error(f"❌ [{file_name}] SRT 파일 저장 중 오류 발생: {write_err}", exc_info=True)
                  # 오류 발생 시 작업 상태 업데이트
                  raise RuntimeError(f"SRT 저장 오류: {write_err}") from write_err # 에러 전파
 
@@ -188,7 +239,7 @@ async def run_whisper_on_file(manager: ConnectionManager, client_id: str, file_p
             end_time = time.time()
             processing_time = end_time - start_time
             srt_preview = get_srt_preview(srt_path) # 미리보기 생성
-            logger.info(f"Whisper 처리 완료: {file_path} (소요 시간: {processing_time:.2f}초) (Client: {client_id})")
+            logger.info(f"🎉 [{file_name}] Whisper 처리 완료! (소요 시간: {processing_time:.2f}초)")
             result_data = {
                 "status": "completed",
                 "output_path": str(srt_path),
@@ -198,36 +249,63 @@ async def run_whisper_on_file(manager: ConnectionManager, client_id: str, file_p
                 "subtitle_preview": srt_preview # 미리보기 추가
             }
             await manager.send_personal_message({
-                "type": "status_update",
-                "file_path": file_path,
-                "status": "completed",
-                "output_path": str(srt_path),
+                "type": "status_update", 
+                "file_path": file_path, 
+                "status": "completed", 
                 "language": detected_language,
-                "message": "처리 완료",
-                "subtitle_preview": srt_preview,
+                "message": f"완료! (소요 시간: {processing_time:.2f}초)",
+                "progress_percent": 100,
+                "result": result_data
+            }, client_id)
+            await manager.send_personal_message({
+                "type": "log", 
+                "file_path": file_path, 
+                "status": "info", 
+                "message": f"처리 완료 (소요 시간: {processing_time:.2f}초, 언어: {detected_language})",
                 "progress_percent": 100
             }, client_id)
-            await manager.send_personal_message({"type": "log", "file_path": file_path, "status": "info", "message": "SRT 파일 저장 완료", "progress_percent": 100}, client_id)
 
-        except asyncio.CancelledError as ce:
-            logger.info(f"Whisper 작업 취소됨: {file_path} (Client: {client_id}) - 단계: {ce}")
-            result_data = {"status": "cancelled", "message": f"사용자 요청 ({ce})", "file_path": file_path}
-            await manager.send_personal_message({"type": "status_update", "file_path": file_path, "status": "cancelled", "message": "취소됨", "progress_percent": progress_percent}, client_id)
+            return result_data
 
+        except asyncio.CancelledError as cancel_err:
+            cancelled_message = str(cancel_err) or "사용자에 의해 취소됨"
+            logger.info(f"❌ [{file_name}] 작업 취소됨: {cancelled_message}")
+            result_data = {"status": "cancelled", "message": cancelled_message, "file_path": file_path}
+            await manager.send_personal_message({
+                "type": "status_update", 
+                "file_path": file_path, 
+                "status": "cancelled", 
+                "message": f"취소됨: {cancelled_message}", 
+                "progress_percent": progress_percent
+            }, client_id)
+            await manager.send_personal_message({
+                "type": "log", 
+                "file_path": file_path, 
+                "status": "warning", 
+                "message": f"취소됨: {cancelled_message}", 
+                "progress_percent": progress_percent
+            }, client_id)
+            return result_data
+            
         except Exception as e:
-            logger.error(f"Whisper 처리 중 오류 발생 ({file_path}, Client: {client_id}): {e}", exc_info=True)
-            result_data = {"status": "error", "message": str(e), "file_path": file_path}
-            await manager.send_personal_message({"type": "status_update", "file_path": file_path, "status": "error", "message": str(e), "progress_percent": progress_percent}, client_id)
-        finally:
-             logger.info(f"Whisper 처리 종료 (Semaphore 해제): {file_path} (Client: {client_id})")
-             # finally 블록에서도 취소 상태 확인 가능
-             if task.cancelled() and result_data.get("status") != "cancelled":
-                 logger.info(f"Finally 블록에서 취소 확인: {file_path}")
-                 result_data = {"status": "cancelled", "message": "처리 중 취소됨", "file_path": file_path}
-                 # Ensure cancelled status is sent if not already
-                 # await manager.send_personal_message({"type": "status_update", "file_path": file_path, "status": "cancelled", "message": "취소됨"}, client_id)
-
-             return result_data
+            error_message = f"Whisper 처리 중 오류: {str(e)}"
+            logger.error(f"❌ [{file_name}] {error_message}", exc_info=True)
+            result_data = {"status": "error", "message": error_message, "file_path": file_path}
+            await manager.send_personal_message({
+                "type": "status_update", 
+                "file_path": file_path, 
+                "status": "error", 
+                "message": error_message, 
+                "progress_percent": progress_percent
+            }, client_id)
+            await manager.send_personal_message({
+                "type": "log", 
+                "file_path": file_path, 
+                "status": "error", 
+                "message": error_message, 
+                "progress_percent": progress_percent
+            }, client_id)
+            return result_data
 
 def format_timestamp(seconds: float) -> str:
     """Seconds to SRT timestamp format"""

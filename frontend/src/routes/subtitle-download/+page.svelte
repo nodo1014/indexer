@@ -1,4 +1,4 @@
-<script lang="ts">
+<script>
   import { onMount } from 'svelte';
   import DirectoryBrowser from '$lib/components/DirectoryBrowser.svelte';
   import MediaFilesTable from '$lib/components/MediaFilesTable.svelte';
@@ -7,10 +7,10 @@
   import { page } from '$app/stores';
 
   // 상태 관리
-  let selectedFile: string | null = null;
-  let processingFiles: Array<{path: string, status: string}> = [];
-  let completedFiles: Array<{path: string, subtitlePath: string, date: string, adjusted?: boolean, offset?: number}> = [];
-  let failedFiles: Array<{path: string, error: string, date: string}> = [];
+  let selectedFile = null;
+  let processingFiles = [];
+  let completedFiles = [];
+  let failedFiles = [];
   let batchProcessing = false;
   let batchProgress = 0;
   let currentBatchFile = '';
@@ -27,7 +27,7 @@
   });
   
   // 파일 선택 처리
-  function handleFileSelect(event: CustomEvent<string[]>) {
+  function handleFileSelect(event) {
     const files = event.detail;
     if (files && files.length > 0) {
       selectedFile = files[0]; // 첫 번째 선택된 파일
@@ -37,7 +37,7 @@
   }
   
   // 자막 다운로드 완료 처리
-  function handleDownloadComplete(event: CustomEvent<any>) {
+  function handleDownloadComplete(event) {
     const result = event.detail;
     
     if (result.success) {
@@ -67,12 +67,12 @@
   }
   
   // 자동 처리 완료 처리
-  function handleProcessComplete(event: CustomEvent<any>) {
+  function handleProcessComplete(event) {
     handleDownloadComplete(event); // 기본적으로 다운로드 완료와 동일하게 처리
   }
   
   // 배치 처리 시작
-  async function startBatchProcess(files: string[]) {
+  async function startBatchProcess(files) {
     if (!files || files.length === 0) {
       return;
     }
@@ -89,7 +89,7 @@
     // 파일들을 순차적으로 처리
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      currentBatchFile = file.split('/').pop() || '';
+      currentBatchFile = file.split('/').pop();
       
       // 현재 파일 상태 업데이트
       processingFiles = processingFiles.map(f => 
@@ -146,10 +146,9 @@
         }
       } catch (error) {
         // 오류 발생 시 기록
-        const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
         failedFiles = [...failedFiles, {
           path: file,
-          error: errorMessage,
+          error: error.message || '알 수 없는 오류',
           date: new Date().toLocaleString()
         }];
         
@@ -172,7 +171,7 @@
     const files = document.querySelectorAll('#file-list tbody tr input[type="checkbox"]:checked');
     const filePaths = Array.from(files).map(checkbox => {
       const row = checkbox.closest('tr');
-      return row?.getAttribute('data-path') || '';
+      return row.getAttribute('data-path');
     }).filter(Boolean);
     
     if (filePaths.length === 0) {
@@ -298,24 +297,24 @@
     
     <!-- 오른쪽 컨텐츠: 파일 목록 + 다운로더 -->
     <div class="md:col-span-2 space-y-6">
-      <!-- 자막 다운로더를 상단으로 이동 - 파일 선택 필요 없음 -->
-      <div class="card">
-        <h2 class="text-lg font-semibold mb-4">자막 자동 다운로드</h2>
-        {#if selectedFile}
-          <SubtitleDownloader 
-            mediaPath={selectedFile} 
-            on:downloadComplete={handleDownloadComplete}
-            on:processComplete={handleProcessComplete}
-          />
-        {:else}
+      <!-- 파일 목록 테이블 -->
+      <MediaFilesTable on:selectionChange={handleFileSelect} />
+      
+      <!-- 자막 다운로더 -->
+      {#if selectedFile}
+        <SubtitleDownloader 
+          mediaPath={selectedFile} 
+          on:downloadComplete={handleDownloadComplete}
+          on:processComplete={handleProcessComplete}
+        />
+      {:else}
+        <div class="card">
+          <h2 class="text-lg font-semibold mb-4">자막 자동 다운로드</h2>
           <p class="text-center p-4 text-gray-500">
             자막을 다운로드할 미디어 파일을 선택해주세요.
           </p>
-        {/if}
-      </div>
-      
-      <!-- 파일 목록 테이블 -->
-      <MediaFilesTable on:selectionChange={handleFileSelect} />
+        </div>
+      {/if}
       
       <!-- 실패한 파일 목록 -->
       {#if failedFiles.length > 0}
@@ -335,4 +334,4 @@
       {/if}
     </div>
   </div>
-</div>
+</div> 

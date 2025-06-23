@@ -6,19 +6,27 @@
   body {
     @apply bg-gray-50 text-gray-900;
   }
+  
+  .dark body {
+    @apply bg-gray-900 text-gray-100;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
 }
 
 @layer components {
   .btn {
-    @apply px-4 py-2 rounded text-sm font-medium transition-colors;
+    @apply px-4 py-2 rounded text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed;
   }
   
   .btn-primary {
-    @apply bg-blue-600 text-white hover:bg-blue-700;
+    @apply bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600;
   }
   
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 hover:bg-gray-300;
+    @apply bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
   }
   
   .btn-sm {
@@ -26,14 +34,78 @@
   }
 
   .card {
-    @apply bg-white rounded-lg shadow-md p-4;
+    @apply bg-white rounded-lg shadow-md p-4 border border-gray-100 dark:bg-gray-800 dark:border-gray-700;
   }
   
   .input {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500;
+    @apply w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:focus:ring-blue-500 dark:focus:border-blue-500 dark:placeholder-gray-400;
   }
   
   .label {
-    @apply block text-sm font-medium text-gray-700 mb-1;
+    @apply block text-sm font-medium text-gray-700 mb-1 dark:text-gray-300;
+  }
+  
+  /* 진행 상태 바 스타일 */
+  .progress-bar {
+    @apply h-2 w-full bg-gray-200 rounded-full overflow-hidden dark:bg-gray-700;
+  }
+  
+  .progress-bar-fill {
+    @apply h-full bg-blue-600 rounded-full transition-all dark:bg-blue-500;
+  }
+  
+  /* 디렉토리 탐색기 스타일 */
+  .directory-browser {
+    @apply overflow-hidden;
+  }
+  
+  .directory-item {
+    @apply w-full text-left p-2 hover:bg-gray-100 flex items-center cursor-pointer dark:hover:bg-gray-700;
+  }
+  
+  /* 표(테이블) 스타일 */
+  .table-container {
+    @apply overflow-x-auto border rounded dark:border-gray-700;
+  }
+  
+  .data-table {
+    @apply w-full border-collapse;
+  }
+  
+  .data-table th {
+    @apply p-2 text-left bg-gray-100 font-medium border-b dark:bg-gray-700 dark:border-gray-600;
+  }
+  
+  .data-table td {
+    @apply p-2 border-t border-gray-200 dark:border-gray-700;
+  }
+  
+  .data-table tr:hover {
+    @apply bg-gray-50 dark:bg-gray-800;
+  }
+  
+  /* 다크 모드 특정 스타일 */
+  .dark .text-gray-600 {
+    @apply text-gray-400;
+  }
+  
+  .dark .text-red-600 {
+    @apply text-red-400;
+  }
+  
+  .dark .text-green-600 {
+    @apply text-green-400;
+  }
+  
+  .dark .text-blue-600 {
+    @apply text-blue-400;
+  }
+  
+  .dark .bg-red-100 {
+    @apply bg-red-900 bg-opacity-30 text-red-200;
+  }
+  
+  .dark .bg-blue-50 {
+    @apply bg-blue-900 bg-opacity-30 text-blue-200;
   }
 } 
